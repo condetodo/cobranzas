@@ -25,46 +25,29 @@ async function main() {
     console.log(`Created user "${u.username}".`);
   }
 
-  // --- Seed default config values (idempotent) ---
+  // --- Seed default config values (upsert for re-runnability) ---
   const defaults: Record<string, Prisma.InputJsonValue> = {
-    aging_thresholds: {
-      SIN_VENCER: { minDays: null, maxDays: 0 },
-      SUAVE: { minDays: 1, maxDays: 15 },
-      FIRME: { minDays: 16, maxDays: 30 },
-      AVISO_FINAL: { minDays: 31, maxDays: 60 },
-      CRITICO: { minDays: 61, maxDays: null },
-    },
-    sequence_timeouts: {
-      soft_to_firm_days: 5,
-      firm_to_final_days: 5,
-      final_to_escalation_days: 5,
-      accountant_reminder_hours: 24,
-    },
-    templates: {
-      email_soft: {
-        subject:
-          "Recordatorio de pago - Factura(s) pendiente(s) - {{razonSocial}}",
-        body: "Estimado/a cliente,\n\nLe recordamos que tiene facturas pendientes de pago. Agradecemos su pronta atención.\n\nSaludos cordiales.",
-      },
-      email_firm: {
-        subject: "Aviso importante - Facturas vencidas - {{razonSocial}}",
-        body: "Estimado/a cliente,\n\nSus facturas se encuentran vencidas. Le solicitamos regularizar su situación a la brevedad.\n\nSaludos cordiales.",
-      },
-      email_final: {
-        subject: "AVISO FINAL - Acción requerida - {{razonSocial}}",
-        body: "Estimado/a cliente,\n\nEste es un aviso final respecto a sus facturas vencidas. De no recibir respuesta, procederemos con las acciones correspondientes.\n\nSaludos cordiales.",
-      },
+    "aging.thresholds": { suave: 15, firme: 30, avisoFinal: 45 },
+    "sequence.timeouts": { softToFirm: 5, firmToFinal: 7, finalToEscalated: 10 },
+    "contador.email": "",
+    "contador.reminderTimeoutHours": 24,
+    "templates.copy": {
+      soft: "Estimado/a {{razonSocial}},\n\nLe recordamos que tiene una factura pendiente por {{montoTotal}} con vencimiento {{fechaVencimiento}}.\n\nAgradecemos su pronta atención.\n\nAtentamente,\nDepartamento de Cobranzas",
+      firm: "Estimado/a {{razonSocial}},\n\nSu deuda de {{montoTotal}} lleva {{diasVencido}} días de atraso. Le solicitamos regularizar su situación a la brevedad.\n\nQuedamos a disposición para coordinar el pago.\n\nAtentamente,\nDepartamento de Cobranzas",
+      avisoFinal: "AVISO FINAL\n\n{{razonSocial}}, su deuda de {{montoTotal}} lleva {{diasVencido}} días sin pago. De no recibir una respuesta en los próximos {{diasRestantes}} días, procederemos con las medidas correspondientes.\n\nDepartamento de Cobranzas",
+      postPartial: "Estimado/a {{razonSocial}},\n\nConfirmamos la recepción de su pago parcial por {{montoPagado}}. Queda un saldo pendiente de {{montoRestante}}.\n\nDepartamento de Cobranzas",
+      paid: "Estimado/a {{razonSocial}},\n\nConfirmamos la recepción de su pago por {{montoTotal}}. Muchas gracias por regularizar su situación.\n\nAtentamente,\nDepartamento de Cobranzas",
+      rejection: "Lamentamos informarle que el comprobante enviado no pudo ser validado. {{motivoRechazo}}. Por favor envíe un comprobante válido.",
     },
   };
 
   for (const [key, value] of Object.entries(defaults)) {
-    const existing = await prisma.config.findUnique({ where: { key } });
-    if (existing) {
-      console.log(`Config "${key}" already exists, skipping.`);
-      continue;
-    }
-    await prisma.config.create({ data: { key, value } });
-    console.log(`Created config "${key}".`);
+    await prisma.config.upsert({
+      where: { key },
+      update: { value },
+      create: { key, value },
+    });
+    console.log(`Upserted config "${key}".`);
   }
 
   console.log("Seed completed.");
