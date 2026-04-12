@@ -6,6 +6,7 @@ export default defineConfig({
   plugins: [react()],
   test: {
     environment: "node",
+    passWithNoTests: true,
   },
   resolve: {
     alias: {
