@@ -1,0 +1,260 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// --- Auth ---
+
+model User {
+  id             String   @id @default(cuid())
+  username       String   @unique
+  hashedPassword String
+  createdAt      DateTime @default(now())
+}
+
+// --- Domain entities ---
+
+enum InvoiceState {
+  PENDING
+  PAID
+  CANCELLED
+}
+
+model Client {
+  id           String   @id @default(cuid())
+  cod          String   @unique
+  razonSocial  String
+  email        String?
+  telefono     String?
+  telegram     String?
+  categoria    String?
+  autopilotOff Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  invoices          Invoice[]
+  triageSnapshots   DebtorTriageSnapshot[]
+  outreachSequences OutreachSequence[]
+}
+
+model Invoice {
+  id               String       @id @default(cuid())
+  clientId         String
+  client           Client       @relation(fields: [clientId], references: [id])
+  numero           String
+  fechaEmision     DateTime
+  fechaVencimiento DateTime
+  monto            Decimal
+  moneda           String       @default("ARS")
+  estado           InvoiceState @default(PENDING)
+  paidAt           DateTime?
+  paidAmount       Decimal?
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+
+  @@unique([clientId, numero])
+}
+
+// --- Triage ---
+
+enum TriageSource {
+  IMPORT
+  MANUAL
+}
+
+enum Bucket {
+  SIN_VENCER
+  SUAVE
+  FIRME
+  AVISO_FINAL
+  CRITICO
+}
+
+model TriageRun {
+  id            String       @id @default(cuid())
+  timestamp     DateTime     @default(now())
+  source        TriageSource
+  excelFileName String?
+  totalDebtors  Int
+  totalAmount   Decimal
+  bucketCounts  Json
+  bucketAmounts Json
+
+  snapshots         DebtorTriageSnapshot[]
+  portfolioAnalysis PortfolioAnalysis?
+}
+
+model DebtorTriageSnapshot {
+  id             String    @id @default(cuid())
+  triageRunId    String
+  triageRun      TriageRun @relation(fields: [triageRunId], references: [id])
+  clientId       String
+  client         Client    @relation(fields: [clientId], references: [id])
+  montoTotal     Decimal
+  invoiceCount   Int
+  diasVencidoMax Int
+  bucket         Bucket
+  score          Int
+  agentSegment   String?
+  aiInsight      String?
+
+  @@index([triageRunId, score(sort: Desc)])
+}
+
+model PortfolioAnalysis {
+  id           String    @id @default(cuid())
+  triageRunId  String    @unique
+  triageRun    TriageRun @relation(fields: [triageRunId], references: [id])
+  findings     Json
+  segmentos    Json
+  planDeAccion Json
+  createdAt    DateTime  @default(now())
+}
+
+// --- Outreach ---
+
+enum SequenceState {
+  SCHEDULED
+  SENT_SOFT
+  SENT_FIRM
+  SENT_FINAL
+  IN_CONVERSATION
+  AWAITING_ACCOUNTANT
+  PAID
+  PARTIAL_PAID_CONTINUING
+  ESCALATED_TO_HUMAN
+  AUTOPILOT_OFF
+  CLOSED
+}
+
+enum Channel {
+  EMAIL
+  WHATSAPP
+}
+
+enum ClosedReason {
+  PAID
+  PARTIAL_PAID_CONTINUING
+  ESCALATED
+  MANUAL_OVERRIDE
+}
+
+model OutreachSequence {
+  id               String        @id @default(cuid())
+  clientId         String        @unique
+  client           Client        @relation(fields: [clientId], references: [id])
+  state            SequenceState
+  currentBucket    Bucket
+  startedAt        DateTime      @default(now())
+  nextActionAt     DateTime?
+  pausedReason     String?
+  escalationReason String?
+  closedAt         DateTime?
+  closedReason     ClosedReason?
+
+  attempts           OutreachAttempt[]
+  incomingMessages   IncomingMessage[]
+  confirmationTokens AccountantConfirmationToken[]
+}
+
+model OutreachAttempt {
+  id                   String           @id @default(cuid())
+  sequenceId           String
+  sequence             OutreachSequence @relation(fields: [sequenceId], references: [id])
+  channel              Channel
+  templateCode         String
+  sentAt               DateTime         @default(now())
+  externalMessageId    String?
+  rawPayload           Json
+  firstResponseAt      DateTime?
+  classificationResult Json?
+}
+
+enum IncomingCategory {
+  PAGARA
+  COMPROBANTE_ADJUNTO
+  NEGOCIANDO
+  DISPUTA
+  AUTO_REPLY
+  OTRO
+}
+
+model IncomingMessage {
+  id                 String            @id @default(cuid())
+  sequenceId         String?
+  sequence           OutreachSequence? @relation(fields: [sequenceId], references: [id])
+  channel            Channel
+  fromAddress        String
+  text               String
+  mediaUrl           String?
+  mediaType          String?
+  receivedAt         DateTime          @default(now())
+  classifiedCategory IncomingCategory?
+  classifierMetadata Json?
+  agentResponseId    String?
+}
+
+// --- Accountant ---
+
+model AccountantConfirmationToken {
+  id                String           @id @default(cuid())
+  token             String           @unique
+  incomingMessageId String           @unique
+  sequenceId        String
+  sequence          OutreachSequence @relation(fields: [sequenceId], references: [id])
+  createdAt         DateTime         @default(now())
+  expiresAt         DateTime
+  consumedAt        DateTime?
+  reminderSentAt    DateTime?
+
+  confirmation AccountantConfirmation?
+}
+
+enum AccountantDecision {
+  TOTAL
+  PARTIAL
+  REJECTED
+}
+
+model AccountantConfirmation {
+  id                String                      @id @default(cuid())
+  tokenId           String                      @unique
+  token             AccountantConfirmationToken  @relation(fields: [tokenId], references: [id])
+  sequenceId        String
+  decision          AccountantDecision
+  confirmedAmount   Decimal?
+  rejectionReason   String?
+  appliedInvoiceIds Json?
+  createdAt         DateTime                    @default(now())
+}
+
+// --- Config & Audit ---
+
+model Config {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     Json
+  updatedAt DateTime @updatedAt
+}
+
+enum ActorType {
+  USER
+  SYSTEM
+  CONTADOR
+  DEBTOR
+}
+
+model AuditLog {
+  id         String    @id @default(cuid())
+  timestamp  DateTime  @default(now())
+  actorType  ActorType
+  actorId    String?
+  action     String
+  targetType String?
+  targetId   String?
+  payload    Json?
+}
