@@ -34,6 +34,12 @@ export default async function AnalisisIAPage() {
           </p>
         </div>
         <ExcelDropzone />
+        <div className="text-center pt-4">
+          <p className="text-sm text-muted-foreground mb-3">
+            O si ya tenes datos cargados en el sistema:
+          </p>
+          <ReanalyzarButton />
+        </div>
       </div>
     )
   }
