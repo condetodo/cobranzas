@@ -4,6 +4,8 @@ import { auditLog } from '@/lib/audit'
 import { getAgingThresholds } from '@/lib/config'
 import { calculateScore } from './scoring'
 import { assignBucket } from './buckets'
+import { generateInsight } from '@/lib/agents/agent-a-insight'
+import { analyzePortfolio } from '@/lib/agents/agent-b-portfolio'
 
 export interface TriageRunResult {
   triageRunId: string
@@ -14,11 +16,10 @@ export interface TriageRunResult {
 }
 
 /**
- * Phase 1: Deterministic triage scan.
- * Queries all clients with PENDING invoices, computes scores + buckets, and
- * persists a TriageRun + DebtorTriageSnapshots in a single transaction.
- *
- * Phases 2-3 (AI enrichment) will be added in Task 7.
+ * Full triage scan — 3 phases:
+ *   Phase 1: Deterministic scoring + bucket assignment; persists TriageRun + DebtorTriageSnapshots.
+ *   Phase 2: AI enrichment via Agent A — generates a 2-line insight for the top 50 debtors.
+ *   Phase 3: Portfolio analysis via Agent B — produces findings, segments, and action plan.
  */
 export async function runTriage(
   source: TriageSource,
@@ -57,11 +58,14 @@ export async function runTriage(
 
   type SnapshotData = {
     clientId: string
+    razonSocial: string
+    categoria: string | null
     montoTotal: number
     invoiceCount: number
     diasVencidoMax: number
     bucket: Bucket
     score: number
+    snapshotId?: string
   }
 
   const snapshots: SnapshotData[] = []
@@ -96,6 +100,8 @@ export async function runTriage(
 
     snapshots.push({
       clientId: client.id,
+      razonSocial: client.razonSocial,
+      categoria: client.categoria ?? null,
       montoTotal,
       invoiceCount,
       diasVencidoMax,
@@ -107,7 +113,7 @@ export async function runTriage(
   }
 
   // 4. Persist TriageRun + snapshots in a single transaction
-  const triageRun = await prisma.$transaction(async (tx) => {
+  const { triageRun } = await prisma.$transaction(async (tx) => {
     const run = await tx.triageRun.create({
       data: {
         source,
@@ -119,19 +125,30 @@ export async function runTriage(
       },
     })
 
-    await tx.debtorTriageSnapshot.createMany({
-      data: snapshots.map((s) => ({
-        triageRunId: run.id,
-        clientId: s.clientId,
-        montoTotal: s.montoTotal,
-        invoiceCount: s.invoiceCount,
-        diasVencidoMax: s.diasVencidoMax,
-        bucket: s.bucket,
-        score: s.score,
-      })),
+    // createMany doesn't return IDs on all DBs — create individually to capture IDs
+    const created = await Promise.all(
+      snapshots.map((s) =>
+        tx.debtorTriageSnapshot.create({
+          data: {
+            triageRunId: run.id,
+            clientId: s.clientId,
+            montoTotal: s.montoTotal,
+            invoiceCount: s.invoiceCount,
+            diasVencidoMax: s.diasVencidoMax,
+            bucket: s.bucket,
+            score: s.score,
+          },
+          select: { id: true },
+        })
+      )
+    )
+
+    // Attach snapshot IDs back to our in-memory list
+    snapshots.forEach((s, i) => {
+      s.snapshotId = created[i].id
     })
 
-    return run
+    return { triageRun: run }
   })
 
   // 5. Audit log
@@ -148,6 +165,83 @@ export async function runTriage(
       bucketCounts,
     },
   })
+
+  // ── Phase 2: AI enrichment — Agent A generates a 2-line insight per debtor ──
+  const top50 = [...snapshots]
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 50)
+
+  const BATCH_SIZE = 5
+  let phase2Done = 0
+
+  for (let i = 0; i < top50.length; i += BATCH_SIZE) {
+    const batch = top50.slice(i, i + BATCH_SIZE)
+
+    const results = await Promise.allSettled(
+      batch.map(async (s) => {
+        const insight = await generateInsight({
+          razonSocial: s.razonSocial,
+          montoTotal: s.montoTotal,
+          diasVencidoMax: s.diasVencidoMax,
+          invoiceCount: s.invoiceCount,
+          categoria: s.categoria,
+          bucket: s.bucket,
+        })
+
+        await prisma.debtorTriageSnapshot.update({
+          where: { id: s.snapshotId },
+          data: { aiInsight: insight },
+        })
+      })
+    )
+
+    results.forEach((result, idx) => {
+      if (result.status === 'rejected') {
+        console.error(
+          `[Triage Phase 2] Error generating insight for ${batch[idx].razonSocial}:`,
+          result.reason
+        )
+      }
+    })
+
+    phase2Done += batch.length
+    onProgress?.({ phase: 2, done: phase2Done, total: 50 })
+  }
+
+  // ── Phase 3: Portfolio analysis — Agent B analyzes the full portfolio ──
+  const top30 = [...snapshots]
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 30)
+
+  try {
+    const portfolioAnalysis = await analyzePortfolio({
+      totalDebtors: total,
+      totalAmount,
+      bucketCounts,
+      bucketAmounts,
+      sampleDebtors: top30.map((s) => ({
+        razonSocial: s.razonSocial,
+        montoTotal: s.montoTotal,
+        diasVencidoMax: s.diasVencidoMax,
+        invoiceCount: s.invoiceCount,
+        bucket: s.bucket,
+        categoria: s.categoria,
+      })),
+    })
+
+    await prisma.portfolioAnalysis.create({
+      data: {
+        triageRunId: triageRun.id,
+        findings: portfolioAnalysis.findings,
+        segmentos: portfolioAnalysis.segmentos,
+        planDeAccion: portfolioAnalysis.planDeAccion,
+      },
+    })
+  } catch (err) {
+    console.error('[Triage Phase 3] Error running portfolio analysis:', err)
+  }
+
+  onProgress?.({ phase: 3, done: 1, total: 1 })
 
   return {
     triageRunId: triageRun.id,
