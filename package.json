@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "next lint",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "seed:demo": "npx tsx prisma/seed-demo.ts"
   },
   "prisma": {
     "seed": "npx tsx prisma/seed.ts"
