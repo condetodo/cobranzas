@@ -13,6 +13,7 @@ export async function GET(
 
   const { id } = await params
 
+  try {
   const client = await prisma.client.findUnique({
     where: { id },
     include: {
@@ -82,4 +83,11 @@ export async function GET(
     timeline,
     sequenceState: seq?.state ?? null,
   })
+  } catch (err: any) {
+    console.error('debtor detail error:', err)
+    return NextResponse.json(
+      { error: err.message ?? 'Error loading debtor detail' },
+      { status: 500 }
+    )
+  }
 }

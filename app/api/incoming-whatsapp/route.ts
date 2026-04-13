@@ -79,14 +79,22 @@ export async function POST(req: NextRequest) {
   }
 
   // 5. Process the incoming message
-  await processIncomingMessage({
-    sequenceId: sequence.id,
-    channel: 'WHATSAPP',
-    fromAddress: payload.from,
-    text: payload.text,
-    mediaUrl: payload.mediaUrl,
-    mediaType: payload.mediaType,
-  })
+  try {
+    await processIncomingMessage({
+      sequenceId: sequence.id,
+      channel: 'WHATSAPP',
+      fromAddress: payload.from,
+      text: payload.text,
+      mediaUrl: payload.mediaUrl,
+      mediaType: payload.mediaType,
+    })
 
-  return NextResponse.json({ status: 'processed' })
+    return NextResponse.json({ status: 'processed' })
+  } catch (err: any) {
+    console.error('incoming-whatsapp processing error:', err)
+    return NextResponse.json(
+      { error: err.message ?? 'Error processing message' },
+      { status: 500 }
+    )
+  }
 }

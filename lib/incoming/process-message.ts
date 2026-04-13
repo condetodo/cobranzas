@@ -2,6 +2,7 @@ import { Channel, IncomingCategory } from '@prisma/client'
 import { prisma } from '@/lib/db'
 import { classifyResponse, Classification } from '@/lib/agents/agent-c-classifier'
 import { generateConversationalReply } from '@/lib/agents/agent-e-conversational'
+import { sendToAccountant } from '@/lib/contador/workflow'
 import { transitionSequence } from '@/lib/state-machine/transitions'
 import { EmailChannel } from '@/lib/channels/email-channel'
 import { WhatsAppDemoChannel } from '@/lib/channels/whatsapp-demo-channel'
@@ -94,7 +95,11 @@ export async function processIncomingMessage(
       await transitionSequence(sequence.id, 'AWAITING_ACCOUNTANT', {
         actorType: 'SYSTEM',
       })
-      // Accountant workflow is wired in Task 11
+      // Send to accountant for confirmation
+      await sendToAccountant({
+        sequenceId: sequence.id,
+        incomingMessageId: incomingMsg.id,
+      })
       break
     }
 

@@ -12,13 +12,22 @@ export async function POST(
   }
 
   const { id } = await params
-  const body = await req.json()
-  const autopilotOff = Boolean(body.autopilotOff)
 
-  await prisma.client.update({
-    where: { id },
-    data: { autopilotOff },
-  })
+  try {
+    const body = await req.json()
+    const autopilotOff = Boolean(body.autopilotOff)
 
-  return NextResponse.json({ ok: true, autopilotOff })
+    await prisma.client.update({
+      where: { id },
+      data: { autopilotOff },
+    })
+
+    return NextResponse.json({ ok: true, autopilotOff })
+  } catch (err: any) {
+    console.error('autopilot toggle error:', err)
+    return NextResponse.json(
+      { error: err.message ?? 'Error toggling autopilot' },
+      { status: 500 }
+    )
+  }
 }

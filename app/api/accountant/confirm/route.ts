@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { isTokenValid } from '@/lib/contador/token'
 import { transitionSequence } from '@/lib/state-machine/transitions'
+import { generateRejectionMessage } from '@/lib/agents/agent-f-rejection'
+import { EmailChannel } from '@/lib/channels/email-channel'
+import { WhatsAppDemoChannel } from '@/lib/channels/whatsapp-demo-channel'
 import { auditLog } from '@/lib/audit'
 import { AccountantDecision } from '@prisma/client'
 import { Decimal } from '@prisma/client/runtime/library'
@@ -35,6 +38,7 @@ export async function POST(req: NextRequest) {
     )
   }
 
+  try {
   // 1. Load and validate token
   const tokenRecord = await prisma.accountantConfirmationToken.findUnique({
     where: { token: body.token },
@@ -138,6 +142,41 @@ export async function POST(req: NextRequest) {
       await transitionSequence(sequence.id, 'IN_CONVERSATION', {
         actorType: 'CONTADOR',
       })
+
+      // Generate rejection message via Agent F and send to debtor
+      const montoAdeudado = invoices.reduce(
+        (sum, inv) => sum + Number(inv.monto),
+        0
+      )
+      const rejectionMessage = await generateRejectionMessage({
+        debtorName: sequence.client.razonSocial,
+        rejectionReason: body.rejectionReason ?? 'Comprobante no válido',
+        montoAdeudado,
+      })
+
+      // Send via the appropriate channel
+      const channel = sequence.client.telefono
+        ? new WhatsAppDemoChannel()
+        : new EmailChannel()
+      const { externalMessageId, sentAt } = await channel.send({
+        client: sequence.client,
+        templateCode: 'rejection',
+        templateVars: {},
+        sequenceId: sequence.id,
+        renderedMessage: rejectionMessage,
+      })
+
+      // Record the outreach attempt
+      await prisma.outreachAttempt.create({
+        data: {
+          sequenceId: sequence.id,
+          channel: channel.name,
+          templateCode: 'rejection',
+          sentAt,
+          externalMessageId,
+          rawPayload: { renderedMessage: rejectionMessage },
+        },
+      })
       break
     }
   }
@@ -176,4 +215,11 @@ export async function POST(req: NextRequest) {
   })
 
   return NextResponse.json({ status: 'ok', decision: body.decision })
+  } catch (err: any) {
+    console.error('accountant/confirm error:', err)
+    return NextResponse.json(
+      { error: err.message ?? 'Internal server error' },
+      { status: 500 }
+    )
+  }
 }

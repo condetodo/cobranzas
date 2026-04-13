@@ -16,9 +16,17 @@ export async function POST(req: NextRequest) {
     // no body is fine — use defaults
   }
 
-  const source: TriageSource =
-    body.source === 'IMPORT' ? TriageSource.IMPORT : TriageSource.MANUAL
+  try {
+    const source: TriageSource =
+      body.source === 'IMPORT' ? TriageSource.IMPORT : TriageSource.MANUAL
 
-  const result = await runTriage(source, body.excelFileName)
-  return NextResponse.json(result)
+    const result = await runTriage(source, body.excelFileName)
+    return NextResponse.json(result)
+  } catch (err: any) {
+    console.error('triage error:', err)
+    return NextResponse.json(
+      { error: err.message ?? 'Error en triage' },
+      { status: 500 }
+    )
+  }
 }

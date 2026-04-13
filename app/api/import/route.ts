@@ -16,14 +16,22 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'At least one file required' }, { status: 400 })
   }
 
-  const clientsBuffer = clientsFile ? Buffer.from(await clientsFile.arrayBuffer()) : null
-  const invoicesBuffer = invoicesFile ? Buffer.from(await invoicesFile.arrayBuffer()) : null
+  try {
+    const clientsBuffer = clientsFile ? Buffer.from(await clientsFile.arrayBuffer()) : null
+    const invoicesBuffer = invoicesFile ? Buffer.from(await invoicesFile.arrayBuffer()) : null
 
-  const result = await importExcel(
-    clientsBuffer,
-    invoicesBuffer,
-    session.user.id,
-    clientsFile?.name ?? invoicesFile?.name
-  )
-  return NextResponse.json(result)
+    const result = await importExcel(
+      clientsBuffer,
+      invoicesBuffer,
+      session.user.id,
+      clientsFile?.name ?? invoicesFile?.name
+    )
+    return NextResponse.json(result)
+  } catch (err: any) {
+    console.error('import error:', err)
+    return NextResponse.json(
+      { error: err.message ?? 'Error al importar' },
+      { status: 500 }
+    )
+  }
 }
