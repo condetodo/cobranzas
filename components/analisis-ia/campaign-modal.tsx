@@ -69,7 +69,8 @@ export function CampaignModal({
       setResult(null)
       return
     }
-    setTemplate(action.templateCode)
+    const validCodes = TEMPLATE_OPTIONS.map((o) => o.value)
+    setTemplate(validCodes.includes(action.templateCode) ? action.templateCode : "soft")
     setState("loading")
     fetch(`/api/debtors/by-segment?segment=${action.targetSegment}`)
       .then((r) => r.json())
@@ -110,6 +111,10 @@ export function CampaignModal({
         }),
       })
       const data = await res.json()
+      if (!res.ok) {
+        setState("error")
+        return
+      }
       setResult(data)
       setState("done")
     } catch {
@@ -231,7 +236,7 @@ export function CampaignModal({
               </Button>
               <Button
                 onClick={handleSend}
-                disabled={state === "sending" || selected.size === 0}
+                disabled={state === "sending" || selected.size === 0 || !template}
               >
                 {state === "sending" ? (
                   <>
