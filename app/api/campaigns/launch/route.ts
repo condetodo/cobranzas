@@ -220,11 +220,17 @@ export async function POST(req: NextRequest) {
       else timeoutMs = timeouts.finalToEscalated * 1000
       const nextActionAt = new Date(sentAt.getTime() + timeoutMs)
 
-      await transitionSequence(sequence.id, targetState, {
-        nextActionAt,
-        actorType: 'USER',
-        actorId: userId,
-      })
+      try {
+        await transitionSequence(sequence.id, targetState, {
+          nextActionAt,
+          actorType: 'USER',
+          actorId: userId,
+        })
+      } catch (transitionErr: any) {
+        // If transition fails but email was sent, still count as sent
+        // This can happen if the sequence was already in a non-SCHEDULED state
+        console.warn(`Transition warning for ${client.cod}: ${transitionErr.message}`)
+      }
 
       results.sent++
     } catch (err: any) {
