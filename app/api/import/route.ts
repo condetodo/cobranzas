@@ -3,9 +3,13 @@ import { auth } from '@/lib/auth'
 import { importExcel } from '@/lib/excel/import'
 
 export async function POST(req: NextRequest) {
-  const session = await auth()
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  // Try to get session, but don't block on it (demo phase)
+  let userId = 'system'
+  try {
+    const session = await auth()
+    if (session?.user?.id) userId = session.user.id
+  } catch {
+    // ignore auth errors in demo
   }
 
   const formData = await req.formData()
@@ -23,7 +27,7 @@ export async function POST(req: NextRequest) {
     const result = await importExcel(
       clientsBuffer,
       invoicesBuffer,
-      session.user.id,
+      userId,
       clientsFile?.name ?? invoicesFile?.name
     )
     return NextResponse.json(result)
