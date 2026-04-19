@@ -1,7 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/lib/auth'
 import { prisma } from '@/lib/db'
-import { getTemplatesCopy, getSequenceTimeouts } from '@/lib/config'
+import {
+  getTemplatesCopy,
+  getSequenceTimeouts,
+  getAgingThresholds,
+  getDemoFastMode,
+  getTimeoutMs,
+  getSequenceChannels,
+  type SequenceChannels,
+} from '@/lib/config'
+import { assignBucket } from '@/lib/triage/buckets'
 import { renderTemplate } from '@/lib/templates/render'
 import { EmailChannel } from '@/lib/channels/email-channel'
 import { WhatsAppDemoChannel } from '@/lib/channels/whatsapp-demo-channel'
@@ -33,15 +42,26 @@ const RequestSchema = {
 
 function resolveChannel(
   preferredChannel: Channel | undefined,
-  client: { email: string | null; telefono: string | null }
+  client: { email: string | null; telefono: string | null },
+  templateCode: string,
+  channelsConfig: SequenceChannels
 ): OutreachChannel {
+  // 1. Explicit override from the request wins
   if (preferredChannel === 'WHATSAPP' && client.telefono) {
     return new WhatsAppDemoChannel()
   }
   if (preferredChannel === 'EMAIL' && client.email) {
     return new EmailChannel()
   }
-  // Auto-resolve: prefer email, fallback to whatsapp
+
+  // 2. Otherwise, honour the per-stage policy configured in Settings
+  if (templateCode === 'soft' || templateCode === 'firm' || templateCode === 'final') {
+    const configured = channelsConfig[templateCode]
+    if (configured === 'WHATSAPP' && client.telefono) return new WhatsAppDemoChannel()
+    if (configured === 'EMAIL' && client.email) return new EmailChannel()
+  }
+
+  // 3. Fallback: whatever contact info is available
   if (client.email) return new EmailChannel()
   if (client.telefono) return new WhatsAppDemoChannel()
   throw new Error('Client has no email or phone number')
@@ -126,7 +146,12 @@ export async function POST(req: NextRequest) {
     )
   }
 
-  const timeouts = await getSequenceTimeouts()
+  const [timeouts, agingThresholds, fastMode, channelsConfig] = await Promise.all([
+    getSequenceTimeouts(),
+    getAgingThresholds(),
+    getDemoFastMode(),
+    getSequenceChannels(),
+  ])
 
   // Load clients with pending invoices and active sequences
   const clients = await prisma.client.findMany({
@@ -155,7 +180,7 @@ export async function POST(req: NextRequest) {
       )
 
       if (!sequence) {
-        // Determine bucket from oldest invoice
+        // Determine bucket from oldest invoice using the shared aging thresholds
         const diasMax = Math.max(
           ...client.invoices.map((inv) =>
             Math.floor(
@@ -163,12 +188,7 @@ export async function POST(req: NextRequest) {
             )
           )
         )
-        let bucket: 'SIN_VENCER' | 'SUAVE' | 'FIRME' | 'AVISO_FINAL' | 'CRITICO' = 'SUAVE'
-        if (diasMax <= 0) bucket = 'SIN_VENCER'
-        else if (diasMax <= 30) bucket = 'SUAVE'
-        else if (diasMax <= 60) bucket = 'FIRME'
-        else if (diasMax <= 90) bucket = 'AVISO_FINAL'
-        else bucket = 'CRITICO'
+        const bucket = assignBucket(diasMax, agingThresholds)
 
         sequence = await prisma.outreachSequence.create({
           data: {
@@ -181,7 +201,7 @@ export async function POST(req: NextRequest) {
 
       let channel: OutreachChannel
       try {
-        channel = resolveChannel(input.channel, client)
+        channel = resolveChannel(input.channel, client, input.templateCode, channelsConfig)
       } catch {
         results.skipped++
         results.errors.push(
@@ -210,15 +230,23 @@ export async function POST(req: NextRequest) {
         },
       })
 
+      // Successful user-driven send: reset failure counter so past retries don't trip the auto-escalate
+      if (sequence.sendFailureCount > 0) {
+        await prisma.outreachSequence.update({
+          where: { id: sequence.id },
+          data: { sendFailureCount: 0 },
+        })
+      }
+
       // Transition to appropriate SENT_* state
       const targetState = sentStateForTemplate(input.templateCode)
 
-      // Calculate next action time based on timeouts
-      let timeoutMs: number
-      if (targetState === 'SENT_SOFT') timeoutMs = timeouts.softToFirm * 1000
-      else if (targetState === 'SENT_FIRM') timeoutMs = timeouts.firmToFinal * 1000
-      else timeoutMs = timeouts.finalToEscalated * 1000
-      const nextActionAt = new Date(sentAt.getTime() + timeoutMs)
+      // Calculate next action time based on timeouts (days, or seconds if demo fastMode)
+      let timeoutValue: number
+      if (targetState === 'SENT_SOFT') timeoutValue = timeouts.softToFirm
+      else if (targetState === 'SENT_FIRM') timeoutValue = timeouts.firmToFinal
+      else timeoutValue = timeouts.finalToEscalated
+      const nextActionAt = new Date(sentAt.getTime() + getTimeoutMs(timeoutValue, fastMode))
 
       try {
         await transitionSequence(sequence.id, targetState, {

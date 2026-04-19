@@ -28,7 +28,16 @@ async function main() {
   // --- Seed default config values (upsert for re-runnability) ---
   const defaults: Record<string, Prisma.InputJsonValue> = {
     "aging.thresholds": { suave: 15, firme: 30, avisoFinal: 45 },
-    "sequence.timeouts": { softToFirm: 5, firmToFinal: 7, finalToEscalated: 10 },
+    "sequence.timeouts": { softToFirm: 5, firmToFinal: 7, finalToEscalated: 10, inConversation: 3 },
+    "sequence.channels": { soft: "EMAIL", firm: "EMAIL", final: "EMAIL" },
+    "sequence.maxSendFailures": 3,
+    "business.hours": {
+      start: "09:00",
+      end: "18:00",
+      weekdays: [1, 2, 3, 4, 5],
+      timezone: "America/Argentina/Buenos_Aires",
+    },
+    "demo.fastMode": false,
     "contador.email": "",
     "contador.reminderTimeoutHours": 24,
     "templates.copy": {

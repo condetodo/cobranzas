@@ -144,17 +144,19 @@ enum ClosedReason {
 }
 
 model OutreachSequence {
-  id               String        @id @default(cuid())
-  clientId         String        @unique
-  client           Client        @relation(fields: [clientId], references: [id])
-  state            SequenceState
-  currentBucket    Bucket
-  startedAt        DateTime      @default(now())
-  nextActionAt     DateTime?
-  pausedReason     String?
-  escalationReason String?
-  closedAt         DateTime?
-  closedReason     ClosedReason?
+  id                String        @id @default(cuid())
+  clientId          String        @unique
+  client            Client        @relation(fields: [clientId], references: [id])
+  state             SequenceState
+  currentBucket     Bucket
+  startedAt         DateTime      @default(now())
+  nextActionAt      DateTime?
+  pausedReason      String?
+  escalationReason  String?
+  closedAt          DateTime?
+  closedReason      ClosedReason?
+  sendFailureCount  Int           @default(0)
+  lastIncomingAt    DateTime?
 
   attempts           OutreachAttempt[]
   incomingMessages   IncomingMessage[]

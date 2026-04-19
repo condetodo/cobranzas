@@ -8,6 +8,11 @@ import { EmailChannel } from '@/lib/channels/email-channel'
 import { WhatsAppDemoChannel } from '@/lib/channels/whatsapp-demo-channel'
 import { OutreachChannel } from '@/lib/channels/types'
 import { auditLog } from '@/lib/audit'
+import {
+  getSequenceTimeouts,
+  getDemoFastMode,
+  getTimeoutMs,
+} from '@/lib/config'
 
 export interface IncomingMessageParams {
   sequenceId: string
@@ -58,7 +63,7 @@ export async function processIncomingMessage(
   ]
     .slice(0, 3)
 
-  // 3. Create IncomingMessage record
+  // 3. Create IncomingMessage record + mark sequence as freshly active
   const incomingMsg = await prisma.incomingMessage.create({
     data: {
       sequenceId: params.sequenceId,
@@ -68,6 +73,12 @@ export async function processIncomingMessage(
       mediaUrl: params.mediaUrl,
       mediaType: params.mediaType,
     },
+  })
+
+  // Record the incoming timestamp — used by the IN_CONVERSATION timeout runner
+  await prisma.outreachSequence.update({
+    where: { id: params.sequenceId },
+    data: { lastIncomingAt: new Date() },
   })
 
   // 4. Call Agent C classifier
@@ -120,10 +131,25 @@ export async function processIncomingMessage(
     case 'NEGOCIANDO':
     case 'OTRO':
     default: {
-      // Transition to IN_CONVERSATION if not already there
+      // Arm the IN_CONVERSATION timeout: the runner will escalate if no further
+      // incoming messages arrive before this deadline.
+      const [timeouts, fastMode] = await Promise.all([
+        getSequenceTimeouts(),
+        getDemoFastMode(),
+      ])
+      const inConvMs = getTimeoutMs(timeouts.inConversation, fastMode)
+      const conversationDeadline = new Date(Date.now() + inConvMs)
+
       if (sequence.state !== 'IN_CONVERSATION') {
         await transitionSequence(sequence.id, 'IN_CONVERSATION', {
+          nextActionAt: conversationDeadline,
           actorType: 'SYSTEM',
+        })
+      } else {
+        // Already in conversation — just refresh the deadline on this new reply
+        await prisma.outreachSequence.update({
+          where: { id: sequence.id },
+          data: { nextActionAt: conversationDeadline },
         })
       }
 
