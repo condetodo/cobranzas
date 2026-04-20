@@ -18,6 +18,18 @@ describe('isValidTransition', () => {
     expect(isValidTransition('IN_CONVERSATION', 'AWAITING_ACCOUNTANT')).toBe(true)
   })
 
+  it('SENT_SOFT → AWAITING_ACCOUNTANT is valid (comprobante directo)', () => {
+    expect(isValidTransition('SENT_SOFT', 'AWAITING_ACCOUNTANT')).toBe(true)
+  })
+
+  it('SENT_FIRM → AWAITING_ACCOUNTANT is valid (comprobante directo)', () => {
+    expect(isValidTransition('SENT_FIRM', 'AWAITING_ACCOUNTANT')).toBe(true)
+  })
+
+  it('SENT_FINAL → AWAITING_ACCOUNTANT is valid (comprobante directo)', () => {
+    expect(isValidTransition('SENT_FINAL', 'AWAITING_ACCOUNTANT')).toBe(true)
+  })
+
   it('AWAITING_ACCOUNTANT → PAID is valid', () => {
     expect(isValidTransition('AWAITING_ACCOUNTANT', 'PAID')).toBe(true)
   })
