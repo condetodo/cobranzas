@@ -70,7 +70,7 @@ export function CarteraActions() {
               Al terminar, un analisis IA se dispara automaticamente.
             </DialogDescription>
           </DialogHeader>
-          <ExcelDropzone />
+          <ExcelDropzone onComplete={() => setImportOpen(false)} />
         </DialogContent>
       </Dialog>
     </div>
