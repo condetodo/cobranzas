@@ -30,6 +30,22 @@ describe('isValidTransition', () => {
     expect(isValidTransition('SENT_FINAL', 'AWAITING_ACCOUNTANT')).toBe(true)
   })
 
+  it('SENT_SOFT → PAID is valid (pago externo detectado por re-import)', () => {
+    expect(isValidTransition('SENT_SOFT', 'PAID')).toBe(true)
+  })
+
+  it('SENT_FIRM → PAID is valid (pago externo detectado por re-import)', () => {
+    expect(isValidTransition('SENT_FIRM', 'PAID')).toBe(true)
+  })
+
+  it('SENT_FINAL → PAID is valid (pago externo detectado por re-import)', () => {
+    expect(isValidTransition('SENT_FINAL', 'PAID')).toBe(true)
+  })
+
+  it('PARTIAL_PAID_CONTINUING → PAID is valid (saldo pagado externamente)', () => {
+    expect(isValidTransition('PARTIAL_PAID_CONTINUING', 'PAID')).toBe(true)
+  })
+
   it('AWAITING_ACCOUNTANT → PAID is valid', () => {
     expect(isValidTransition('AWAITING_ACCOUNTANT', 'PAID')).toBe(true)
   })

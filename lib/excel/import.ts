@@ -3,10 +3,12 @@ import { auditLog } from '@/lib/audit'
 import { parseClients } from '@/lib/excel/parse-clients'
 import { parseInvoices } from '@/lib/excel/parse-invoices'
 import { InvoiceState } from '@prisma/client'
+import { transitionSequence } from '@/lib/state-machine/transitions'
 
 export interface ImportResult {
   clients: { created: number; updated: number }
   invoices: { created: number; updated: number; closed: number }
+  sequencesClosed: number
   errors: string[]
 }
 
@@ -19,6 +21,7 @@ export async function importExcel(
   const result: ImportResult = {
     clients: { created: 0, updated: 0 },
     invoices: { created: 0, updated: 0, closed: 0 },
+    sequencesClosed: 0,
     errors: [],
   }
 
@@ -134,6 +137,35 @@ export async function importExcel(
         })
         result.invoices.closed += toClose.length
       }
+
+      // --- Auto-close sequences for clients left without PENDING invoices ---
+      // Si un cliente pagó todas sus facturas (vía re-import del Excel, no vía
+      // el workflow del contador), su secuencia activa sigue en SENT_SOFT/FIRM/FINAL
+      // y el cron runner le seguirá mandando mensajes al infinito. Acá la cerramos.
+      for (const clientId of importedClientIds) {
+        const remainingPending = await prisma.invoice.count({
+          where: { clientId, estado: InvoiceState.PENDING },
+        })
+        if (remainingPending > 0) continue
+
+        const activeSeq = await prisma.outreachSequence.findFirst({
+          where: { clientId, closedAt: null },
+        })
+        if (!activeSeq) continue
+
+        try {
+          await transitionSequence(activeSeq.id, 'PAID', {
+            closedReason: 'MANUAL_OVERRIDE',
+            actorType: 'USER',
+            actorId: userId,
+          })
+          result.sequencesClosed++
+        } catch (err: any) {
+          result.errors.push(
+            `No se pudo cerrar la secuencia del cliente ${clientId} tras pago externo: ${err?.message ?? 'error'}`
+          )
+        }
+      }
     }
   }
 
@@ -147,6 +179,7 @@ export async function importExcel(
       fileName,
       clients: result.clients,
       invoices: result.invoices,
+      sequencesClosed: result.sequencesClosed,
       errorCount: result.errors.length,
     },
   })

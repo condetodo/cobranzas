@@ -145,7 +145,7 @@ enum ClosedReason {
 
 model OutreachSequence {
   id                String        @id @default(cuid())
-  clientId          String        @unique
+  clientId          String
   client            Client        @relation(fields: [clientId], references: [id])
   state             SequenceState
   currentBucket     Bucket
@@ -161,6 +161,12 @@ model OutreachSequence {
   attempts           OutreachAttempt[]
   incomingMessages   IncomingMessage[]
   confirmationTokens AccountantConfirmationToken[]
+
+  // Un cliente puede tener varias secuencias históricas (una por cada ciclo de
+  // cobranza), pero solo una "activa" (closedAt=null) a la vez. Ese invariante
+  // se mantiene a nivel de código — no constraint DB — porque requeriría un
+  // partial unique index que Prisma no soporta declarativamente.
+  @@index([clientId, closedAt])
 }
 
 model OutreachAttempt {
