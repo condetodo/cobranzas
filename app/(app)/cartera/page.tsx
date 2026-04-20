@@ -2,6 +2,11 @@ import { prisma } from "@/lib/db"
 import { DebtorTable } from "@/components/cartera/debtor-table"
 import type { Bucket, SequenceState } from "@prisma/client"
 
+// Force every request to read fresh data from the DB. Sin esto Next cachea la
+// página y acciones recientes (confirmación de pago parcial, cambio de estado
+// de secuencia, etc.) no se ven hasta un hard refresh.
+export const dynamic = "force-dynamic"
+
 export interface DebtorRow {
   id: string
   cod: string
@@ -65,27 +70,29 @@ export default async function CarteraPage() {
     },
   })
 
-  // Compute display data
+  // Compute display data. Importante: montoTotal e invoiceCount se computan
+  // siempre en vivo sobre las facturas PENDING actuales, restando paidAmount
+  // para reflejar pagos parciales. El snapshot sirve solo para bucket/score/
+  // aiInsight (métricas históricas del último triage).
   const debtors: DebtorRow[] = clients.map((client) => {
     const snap = client.triageSnapshots[0]
     const seq = client.outreachSequences[0]
 
-    const montoTotal = snap
-      ? Number(snap.montoTotal)
-      : client.invoices.reduce((sum, inv) => sum + Number(inv.monto), 0)
+    const montoTotal = client.invoices.reduce(
+      (sum, inv) => sum + Number(inv.monto) - Number(inv.paidAmount ?? 0),
+      0
+    )
 
     const now = new Date()
-    const diasVencidoMax = snap
-      ? snap.diasVencidoMax
-      : Math.max(
-          0,
-          ...client.invoices.map((inv) =>
-            Math.floor(
-              (now.getTime() - inv.fechaVencimiento.getTime()) /
-                (1000 * 60 * 60 * 24)
-            )
-          )
+    const diasVencidoMax = Math.max(
+      0,
+      ...client.invoices.map((inv) =>
+        Math.floor(
+          (now.getTime() - inv.fechaVencimiento.getTime()) /
+            (1000 * 60 * 60 * 24)
         )
+      )
+    )
 
     return {
       id: client.id,
@@ -100,7 +107,7 @@ export default async function CarteraPage() {
       sequenceState: seq?.state ?? null,
       aiInsight: snap?.aiInsight ?? null,
       autopilotOff: client.autopilotOff,
-      invoiceCount: snap?.invoiceCount ?? client.invoices.length,
+      invoiceCount: client.invoices.length,
     }
   })
 
