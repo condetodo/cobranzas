@@ -7,7 +7,6 @@ import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
-import { ExcelDropzone } from "@/components/import/excel-dropzone"
 import {
   Select,
   SelectContent,
@@ -107,16 +106,6 @@ export function SettingsForm({
 
   return (
     <div className="space-y-6 max-w-3xl">
-      {/* Import section */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Importar datos</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <ExcelDropzone />
-        </CardContent>
-      </Card>
-
       {/* Aging thresholds */}
       <Card>
         <CardHeader>

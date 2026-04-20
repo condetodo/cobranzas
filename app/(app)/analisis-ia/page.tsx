@@ -1,10 +1,10 @@
+import Link from "next/link"
 import { prisma } from "@/lib/db"
 import { ScanSummaryCard } from "@/components/analisis-ia/scan-summary-card"
 import { FindingsList } from "@/components/analisis-ia/findings-list"
 import { SegmentCards } from "@/components/analisis-ia/segment-cards"
 import { ActionPlanList } from "@/components/analisis-ia/action-plan-list"
 import { ReanalyzarButton } from "@/components/analisis-ia/reanalizar-button"
-import { ExcelDropzone } from "@/components/import/excel-dropzone"
 
 export default async function AnalisisIAPage() {
   // Get the latest triage run with analysis
@@ -30,15 +30,23 @@ export default async function AnalisisIAPage() {
         <div>
           <h1 className="text-2xl font-bold">Analisis IA</h1>
           <p className="text-sm text-muted-foreground">
-            Importa tus datos para generar un analisis inteligente de tu cartera.
+            Todavia no hay datos analizados.
           </p>
         </div>
-        <ExcelDropzone />
-        <div className="text-center pt-4">
-          <p className="text-sm text-muted-foreground mb-3">
-            O si ya tenes datos cargados en el sistema:
+        <div className="rounded-lg border bg-white p-12 text-center space-y-3">
+          <p className="text-sm text-muted-foreground">
+            Importa tus datos desde{" "}
+            <Link href="/cartera" className="text-blue-600 underline">
+              Cartera
+            </Link>{" "}
+            para generar el primer analisis.
           </p>
-          <ReanalyzarButton />
+          <p className="text-xs text-muted-foreground">
+            O si ya tenes datos cargados, podes correr el analisis manualmente:
+          </p>
+          <div className="pt-2">
+            <ReanalyzarButton />
+          </div>
         </div>
       </div>
     )
@@ -84,11 +92,6 @@ export default async function AnalisisIAPage() {
       {planDeAccion.length > 0 && (
         <ActionPlanList actions={planDeAccion} />
       )}
-
-      <div className="pt-4">
-        <h2 className="text-lg font-semibold mb-3">Importar nuevos datos</h2>
-        <ExcelDropzone />
-      </div>
     </div>
   )
 }

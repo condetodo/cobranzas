@@ -89,7 +89,7 @@ export function TriageRunList({ runs }: { runs: TriageRunData[] }) {
                 <TableCell>
                   {formatNumber(run.totalDebtors)}
                 </TableCell>
-                <TableCell className="font-mono">
+                <TableCell className="tabular-nums">
                   {formatARS(totalAmount)}
                 </TableCell>
                 <TableCell>

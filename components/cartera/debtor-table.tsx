@@ -152,7 +152,7 @@ export function DebtorTable({ debtors }: { debtors: DebtorRow[] }) {
                           )}
                         </div>
                       </TableCell>
-                      <TableCell className="text-right font-mono">
+                      <TableCell className="text-right tabular-nums">
                         {formatARS(debtor.montoTotal)}
                       </TableCell>
                       <TableCell className="text-right text-muted-foreground">
@@ -284,7 +284,7 @@ function InvoiceList({ invoices }: { invoices: DebtorInvoice[] }) {
             const isMarking = markingId === inv.id
             return (
               <tr key={inv.id} className="border-t border-gray-200">
-                <td className="py-1.5 pr-4 font-mono">{inv.numero}</td>
+                <td className="py-1.5 pr-4 tabular-nums">{inv.numero}</td>
                 <td className="py-1.5 pr-4">
                   {new Date(inv.fechaVencimiento).toLocaleDateString("es-AR")}
                 </td>
@@ -295,10 +295,10 @@ function InvoiceList({ invoices }: { invoices: DebtorInvoice[] }) {
                     <span className="text-muted-foreground">-</span>
                   )}
                 </td>
-                <td className="py-1.5 pr-4 text-right font-mono">
+                <td className="py-1.5 pr-4 text-right tabular-nums">
                   {formatARS(inv.monto)}
                 </td>
-                <td className="py-1.5 pr-4 text-right font-mono">
+                <td className="py-1.5 pr-4 text-right tabular-nums">
                   {inv.paidAmount > 0 ? (
                     <span className="text-blue-700">
                       {formatARS(inv.paidAmount)}
@@ -307,7 +307,7 @@ function InvoiceList({ invoices }: { invoices: DebtorInvoice[] }) {
                     <span className="text-muted-foreground">-</span>
                   )}
                 </td>
-                <td className="py-1.5 pr-4 text-right font-mono font-semibold">
+                <td className="py-1.5 pr-4 text-right tabular-nums font-semibold">
                   {formatARS(inv.saldo)}
                 </td>
                 <td className="py-1.5 text-right">

@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db"
 import { DebtorTable } from "@/components/cartera/debtor-table"
+import { CarteraActions } from "@/components/cartera/cartera-actions"
 import type { Bucket, SequenceState } from "@prisma/client"
 
 // Force every request to read fresh data from the DB. Sin esto Next cachea la
@@ -42,18 +43,22 @@ export default async function CarteraPage() {
 
   if (!latestRun) {
     return (
-      <div className="p-6">
-        <h1 className="text-2xl font-bold mb-2">Cartera</h1>
+      <div className="p-6 space-y-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold">Cartera</h1>
+            <p className="text-sm text-muted-foreground">
+              Importa tus datos para empezar a cobrar.
+            </p>
+          </div>
+          <CarteraActions />
+        </div>
         <div className="rounded-lg border bg-white p-12 text-center">
           <p className="text-lg text-muted-foreground">
             No hay datos de cartera aun.
           </p>
           <p className="mt-2 text-sm text-muted-foreground">
-            Importa un archivo Excel desde{" "}
-            <a href="/analisis-ia" className="text-blue-600 underline">
-              Analisis IA
-            </a>{" "}
-            para empezar.
+            Usa el boton &quot;Importar Excel&quot; arriba para empezar.
           </p>
         </div>
       </div>
@@ -149,11 +154,14 @@ export default async function CarteraPage() {
 
   return (
     <div className="p-6 space-y-4">
-      <div>
-        <h1 className="text-2xl font-bold">Cartera</h1>
-        <p className="text-sm text-muted-foreground">
-          {debtors.length} deudores con facturas pendientes
-        </p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold">Cartera</h1>
+          <p className="text-sm text-muted-foreground">
+            {debtors.length} deudores con facturas pendientes
+          </p>
+        </div>
+        <CarteraActions />
       </div>
       <DebtorTable debtors={debtors} />
     </div>

@@ -188,7 +188,7 @@ export function DebtorDrawer({
                             Vence: {formatDate(inv.fechaVencimiento)}
                           </p>
                         </div>
-                        <p className="font-mono">
+                        <p className="tabular-nums">
                           {formatARS(inv.monto)}
                         </p>
                       </div>

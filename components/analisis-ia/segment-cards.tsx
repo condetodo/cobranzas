@@ -45,7 +45,7 @@ export function SegmentCards({ segmentos }: { segmentos: Segmento[] }) {
                 </div>
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-muted-foreground">Monto</span>
-                  <span className="font-semibold font-mono">
+                  <span className="font-semibold tabular-nums">
                     {formatARS(seg.totalAmount)}
                   </span>
                 </div>

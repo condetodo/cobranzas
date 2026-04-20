@@ -180,7 +180,7 @@ export function CampaignModal({
                       onCheckedChange={() => toggleDebtor(d.id)}
                     />
                     <span className="flex-1 text-sm">{d.razonSocial}</span>
-                    <span className="text-sm font-mono text-muted-foreground">
+                    <span className="text-sm tabular-nums text-muted-foreground">
                       {formatARS(d.montoTotal)}
                     </span>
                   </label>
