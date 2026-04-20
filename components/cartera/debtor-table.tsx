@@ -1,6 +1,7 @@
 "use client"
 
 import { Fragment, useState } from "react"
+import { useRouter } from "next/navigation"
 import type { DebtorRow, DebtorInvoice } from "@/app/(app)/cartera/page"
 import { Badge } from "@/components/ui/badge"
 import {
@@ -20,7 +21,14 @@ import { DebtorFilters } from "./debtor-filters"
 import { DebtorDrawer } from "./debtor-drawer"
 import { BUCKET_CONFIG } from "@/lib/bucket-colors"
 import { formatARS } from "@/lib/format"
-import { Bot, PauseCircle, ChevronRight, ChevronDown } from "lucide-react"
+import {
+  Bot,
+  PauseCircle,
+  ChevronRight,
+  ChevronDown,
+  Check,
+  Loader2,
+} from "lucide-react"
 
 const STATE_LABELS: Record<string, string> = {
   SCHEDULED: "Programado",
@@ -226,6 +234,34 @@ export function DebtorTable({ debtors }: { debtors: DebtorRow[] }) {
 }
 
 function InvoiceList({ invoices }: { invoices: DebtorInvoice[] }) {
+  const router = useRouter()
+  const [markingId, setMarkingId] = useState<string | null>(null)
+
+  async function handleMarkPaid(inv: DebtorInvoice) {
+    const ok = window.confirm(
+      `¿Marcar la factura ${inv.numero} (${formatARS(inv.saldo)}) como cobrada?\n\n` +
+        `Esta acción no se puede deshacer desde la UI.`
+    )
+    if (!ok) return
+
+    setMarkingId(inv.id)
+    try {
+      const res = await fetch(`/api/invoices/${inv.id}/mark-paid`, {
+        method: "POST",
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        alert(`Error: ${data?.error ?? "no se pudo marcar la factura"}`)
+        return
+      }
+      router.refresh()
+    } catch (err: any) {
+      alert(`Error: ${err?.message ?? "falló la conexión"}`)
+    } finally {
+      setMarkingId(null)
+    }
+  }
+
   return (
     <div className="space-y-2">
       <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
@@ -239,40 +275,59 @@ function InvoiceList({ invoices }: { invoices: DebtorInvoice[] }) {
             <th className="text-right py-1 pr-4 font-medium">Dias vencida</th>
             <th className="text-right py-1 pr-4 font-medium">Monto</th>
             <th className="text-right py-1 pr-4 font-medium">Pagado</th>
-            <th className="text-right py-1 font-medium">Saldo</th>
+            <th className="text-right py-1 pr-4 font-medium">Saldo</th>
+            <th className="text-right py-1 font-medium w-[140px]">Acciones</th>
           </tr>
         </thead>
         <tbody>
-          {invoices.map((inv) => (
-            <tr key={inv.id} className="border-t border-gray-200">
-              <td className="py-1.5 pr-4 font-mono">{inv.numero}</td>
-              <td className="py-1.5 pr-4">
-                {new Date(inv.fechaVencimiento).toLocaleDateString("es-AR")}
-              </td>
-              <td className="py-1.5 pr-4 text-right">
-                {inv.diasVencido > 0 ? (
-                  <span className="text-amber-700">{inv.diasVencido}</span>
-                ) : (
-                  <span className="text-muted-foreground">-</span>
-                )}
-              </td>
-              <td className="py-1.5 pr-4 text-right font-mono">
-                {formatARS(inv.monto)}
-              </td>
-              <td className="py-1.5 pr-4 text-right font-mono">
-                {inv.paidAmount > 0 ? (
-                  <span className="text-blue-700">
-                    {formatARS(inv.paidAmount)}
-                  </span>
-                ) : (
-                  <span className="text-muted-foreground">-</span>
-                )}
-              </td>
-              <td className="py-1.5 text-right font-mono font-semibold">
-                {formatARS(inv.saldo)}
-              </td>
-            </tr>
-          ))}
+          {invoices.map((inv) => {
+            const isMarking = markingId === inv.id
+            return (
+              <tr key={inv.id} className="border-t border-gray-200">
+                <td className="py-1.5 pr-4 font-mono">{inv.numero}</td>
+                <td className="py-1.5 pr-4">
+                  {new Date(inv.fechaVencimiento).toLocaleDateString("es-AR")}
+                </td>
+                <td className="py-1.5 pr-4 text-right">
+                  {inv.diasVencido > 0 ? (
+                    <span className="text-amber-700">{inv.diasVencido}</span>
+                  ) : (
+                    <span className="text-muted-foreground">-</span>
+                  )}
+                </td>
+                <td className="py-1.5 pr-4 text-right font-mono">
+                  {formatARS(inv.monto)}
+                </td>
+                <td className="py-1.5 pr-4 text-right font-mono">
+                  {inv.paidAmount > 0 ? (
+                    <span className="text-blue-700">
+                      {formatARS(inv.paidAmount)}
+                    </span>
+                  ) : (
+                    <span className="text-muted-foreground">-</span>
+                  )}
+                </td>
+                <td className="py-1.5 pr-4 text-right font-mono font-semibold">
+                  {formatARS(inv.saldo)}
+                </td>
+                <td className="py-1.5 text-right">
+                  <button
+                    type="button"
+                    disabled={isMarking || markingId !== null}
+                    onClick={() => handleMarkPaid(inv)}
+                    className="inline-flex items-center gap-1 rounded-md border border-green-200 bg-green-50 px-2 py-1 text-xs font-medium text-green-700 transition hover:bg-green-100 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {isMarking ? (
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                    ) : (
+                      <Check className="h-3 w-3" />
+                    )}
+                    Marcar pagada
+                  </button>
+                </td>
+              </tr>
+            )
+          })}
         </tbody>
       </table>
     </div>

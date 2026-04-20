@@ -3,15 +3,24 @@ import { auditLog } from '@/lib/audit'
 import { parseClients } from '@/lib/excel/parse-clients'
 import { parseInvoices } from '@/lib/excel/parse-invoices'
 import { InvoiceState } from '@prisma/client'
-import { transitionSequence } from '@/lib/state-machine/transitions'
 
 export interface ImportResult {
   clients: { created: number; updated: number }
-  invoices: { created: number; updated: number; closed: number }
-  sequencesClosed: number
+  invoices: { created: number; updated: number }
   errors: string[]
 }
 
+/**
+ * Pure upsert: crea/actualiza clientes y facturas a partir del Excel.
+ *
+ * IMPORTANTE — semántica de cierre:
+ * Antes este import tenía una lógica de "cerrar las facturas que desaparecieron"
+ * asumiendo que el Excel era un snapshot completo de la cartera. Se removió
+ * porque el Excel de facturación es una fuente de datos (qué facturas existen),
+ * no un comando de baja. El cierre es manual vía `/api/invoices/:id/mark-paid`
+ * o vía el workflow del contador, y se cruza con otro archivo del sistema
+ * contable que indique qué está cobrado.
+ */
 export async function importExcel(
   clientsBuffer: Buffer | null,
   invoicesBuffer: Buffer | null,
@@ -20,15 +29,9 @@ export async function importExcel(
 ): Promise<ImportResult> {
   const result: ImportResult = {
     clients: { created: 0, updated: 0 },
-    invoices: { created: 0, updated: 0, closed: 0 },
-    sequencesClosed: 0,
+    invoices: { created: 0, updated: 0 },
     errors: [],
   }
-
-  // Track which clientIds appeared in the invoices import (for closing disappeared invoices)
-  const importedClientIds = new Set<string>()
-  // Track which (clientId, numero) pairs appeared in this import
-  const importedInvoiceKeys = new Set<string>()
 
   // --- Clients ---
   if (clientsBuffer) {
@@ -72,15 +75,13 @@ export async function importExcel(
     result.errors.push(...parsed.errors)
 
     for (const row of parsed.rows) {
-      // Look up client by cod
       const client = await prisma.client.findUnique({ where: { cod: row.codCliente } })
       if (!client) {
-        result.errors.push(`Invoice ${row.numero}: client with cod="${row.codCliente}" not found`)
+        result.errors.push(
+          `Invoice ${row.numero}: client with cod="${row.codCliente}" not found`
+        )
         continue
       }
-
-      importedClientIds.add(client.id)
-      importedInvoiceKeys.add(`${client.id}::${row.numero}`)
 
       const existing = await prisma.invoice.findUnique({
         where: { clientId_numero: { clientId: client.id, numero: row.numero } },
@@ -112,61 +113,6 @@ export async function importExcel(
         result.invoices.created++
       }
     }
-
-    // --- Close invoices that disappeared ---
-    // For each client that appeared in this import, find PENDING invoices
-    // whose numero is NOT in the imported set → mark as PAID
-    if (importedClientIds.size > 0) {
-      const now = new Date()
-      const pendingInvoices = await prisma.invoice.findMany({
-        where: {
-          clientId: { in: Array.from(importedClientIds) },
-          estado: InvoiceState.PENDING,
-        },
-        select: { id: true, clientId: true, numero: true },
-      })
-
-      const toClose = pendingInvoices.filter(
-        (inv) => !importedInvoiceKeys.has(`${inv.clientId}::${inv.numero}`)
-      )
-
-      if (toClose.length > 0) {
-        await prisma.invoice.updateMany({
-          where: { id: { in: toClose.map((inv) => inv.id) } },
-          data: { estado: InvoiceState.PAID, paidAt: now },
-        })
-        result.invoices.closed += toClose.length
-      }
-
-      // --- Auto-close sequences for clients left without PENDING invoices ---
-      // Si un cliente pagó todas sus facturas (vía re-import del Excel, no vía
-      // el workflow del contador), su secuencia activa sigue en SENT_SOFT/FIRM/FINAL
-      // y el cron runner le seguirá mandando mensajes al infinito. Acá la cerramos.
-      for (const clientId of importedClientIds) {
-        const remainingPending = await prisma.invoice.count({
-          where: { clientId, estado: InvoiceState.PENDING },
-        })
-        if (remainingPending > 0) continue
-
-        const activeSeq = await prisma.outreachSequence.findFirst({
-          where: { clientId, closedAt: null },
-        })
-        if (!activeSeq) continue
-
-        try {
-          await transitionSequence(activeSeq.id, 'PAID', {
-            closedReason: 'MANUAL_OVERRIDE',
-            actorType: 'USER',
-            actorId: userId,
-          })
-          result.sequencesClosed++
-        } catch (err: any) {
-          result.errors.push(
-            `No se pudo cerrar la secuencia del cliente ${clientId} tras pago externo: ${err?.message ?? 'error'}`
-          )
-        }
-      }
-    }
   }
 
   // --- Audit log ---
@@ -179,7 +125,6 @@ export async function importExcel(
       fileName,
       clients: result.clients,
       invoices: result.invoices,
-      sequencesClosed: result.sequencesClosed,
       errorCount: result.errors.length,
     },
   })

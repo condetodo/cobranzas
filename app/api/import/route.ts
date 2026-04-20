@@ -39,8 +39,7 @@ export async function POST(req: NextRequest) {
     // LLM calls). El usuario entra a /cartera y ve los buckets/scores
     // actualizados cuando el background termina; `dynamic = 'force-dynamic'`
     // en la page evita caché stale.
-    const changedInvoices =
-      result.invoices.created + result.invoices.updated + result.invoices.closed
+    const changedInvoices = result.invoices.created + result.invoices.updated
     const triageTriggered = changedInvoices > 0
     if (triageTriggered) {
       void runTriage(TriageSource.IMPORT, fileName).catch((err) => {
