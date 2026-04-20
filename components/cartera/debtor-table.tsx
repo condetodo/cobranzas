@@ -1,7 +1,7 @@
 "use client"
 
-import { useState } from "react"
-import type { DebtorRow } from "@/app/(app)/cartera/page"
+import { Fragment, useState } from "react"
+import type { DebtorRow, DebtorInvoice } from "@/app/(app)/cartera/page"
 import { Badge } from "@/components/ui/badge"
 import {
   Table,
@@ -20,7 +20,7 @@ import { DebtorFilters } from "./debtor-filters"
 import { DebtorDrawer } from "./debtor-drawer"
 import { BUCKET_CONFIG } from "@/lib/bucket-colors"
 import { formatARS } from "@/lib/format"
-import { Bot, PauseCircle } from "lucide-react"
+import { Bot, PauseCircle, ChevronRight, ChevronDown } from "lucide-react"
 
 const STATE_LABELS: Record<string, string> = {
   SCHEDULED: "Programado",
@@ -41,6 +41,16 @@ export function DebtorTable({ debtors }: { debtors: DebtorRow[] }) {
   const [bucket, setBucket] = useState("ALL")
   const [autopilotOffOnly, setAutopilotOffOnly] = useState(false)
   const [selectedDebtor, setSelectedDebtor] = useState<DebtorRow | null>(null)
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set())
+
+  function toggleExpanded(id: string) {
+    setExpandedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
 
   // Filter
   const filtered = debtors.filter((d) => {
@@ -69,8 +79,10 @@ export function DebtorTable({ debtors }: { debtors: DebtorRow[] }) {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead className="w-[250px]">Razon Social</TableHead>
+              <TableHead className="w-[40px]" />
+              <TableHead className="w-[230px]">Razon Social</TableHead>
               <TableHead className="text-right">Monto Total</TableHead>
+              <TableHead className="text-right">Facturas</TableHead>
               <TableHead className="text-right">Dias Vencido</TableHead>
               <TableHead>Segmento</TableHead>
               <TableHead>Estado</TableHead>
@@ -82,7 +94,7 @@ export function DebtorTable({ debtors }: { debtors: DebtorRow[] }) {
             {filtered.length === 0 ? (
               <TableRow>
                 <TableCell
-                  colSpan={7}
+                  colSpan={9}
                   className="h-24 text-center text-muted-foreground"
                 >
                   No se encontraron deudores.
@@ -91,72 +103,113 @@ export function DebtorTable({ debtors }: { debtors: DebtorRow[] }) {
             ) : (
               filtered.map((debtor, idx) => {
                 const bucketCfg = BUCKET_CONFIG[debtor.bucket]
+                const isExpanded = expandedIds.has(debtor.id)
+                const hasPartial = debtor.invoices.some((inv) => inv.paidAmount > 0)
+
                 return (
-                  <TableRow
-                    key={debtor.id}
-                    className="cursor-pointer"
-                    onClick={() => setSelectedDebtor(debtor)}
-                  >
-                    <TableCell className="font-medium">
-                      {debtor.razonSocial}
-                    </TableCell>
-                    <TableCell className="text-right font-mono">
-                      {formatARS(debtor.montoTotal)}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      {debtor.diasVencidoMax}
-                    </TableCell>
-                    <TableCell>
-                      <Badge
-                        variant="outline"
-                        className={bucketCfg.bgClass}
-                      >
-                        {bucketCfg.label}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      {debtor.sequenceState ? (
-                        <Badge variant="secondary">
-                          {STATE_LABELS[debtor.sequenceState] ??
-                            debtor.sequenceState}
+                  <Fragment key={debtor.id}>
+                    <TableRow
+                      className="cursor-pointer"
+                      onClick={() => setSelectedDebtor(debtor)}
+                    >
+                      <TableCell>
+                        <button
+                          type="button"
+                          className="inline-flex items-center justify-center rounded-md p-1 hover:bg-gray-100"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            toggleExpanded(debtor.id)
+                          }}
+                          aria-label={
+                            isExpanded ? "Colapsar facturas" : "Ver facturas"
+                          }
+                        >
+                          {isExpanded ? (
+                            <ChevronDown className="h-4 w-4" />
+                          ) : (
+                            <ChevronRight className="h-4 w-4" />
+                          )}
+                        </button>
+                      </TableCell>
+                      <TableCell className="font-medium">
+                        <div className="flex items-center gap-2">
+                          {debtor.razonSocial}
+                          {hasPartial && (
+                            <Badge
+                              variant="outline"
+                              className="border-blue-200 bg-blue-50 text-blue-700 text-xs"
+                            >
+                              Pago parcial
+                            </Badge>
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-right font-mono">
+                        {formatARS(debtor.montoTotal)}
+                      </TableCell>
+                      <TableCell className="text-right text-muted-foreground">
+                        {debtor.invoiceCount}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {debtor.diasVencidoMax}
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="outline" className={bucketCfg.bgClass}>
+                          {bucketCfg.label}
                         </Badge>
-                      ) : (
-                        <span className="text-xs text-muted-foreground">
-                          Sin secuencia
-                        </span>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-center">
-                      {debtor.aiInsight && idx < 50 ? (
-                        <Popover>
-                          <PopoverTrigger asChild>
-                            <button
-                              className="inline-flex items-center justify-center rounded-md p-1 hover:bg-gray-100"
+                      </TableCell>
+                      <TableCell>
+                        {debtor.sequenceState ? (
+                          <Badge variant="secondary">
+                            {STATE_LABELS[debtor.sequenceState] ??
+                              debtor.sequenceState}
+                          </Badge>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">
+                            Sin secuencia
+                          </span>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-center">
+                        {debtor.aiInsight && idx < 50 ? (
+                          <Popover>
+                            <PopoverTrigger asChild>
+                              <button
+                                className="inline-flex items-center justify-center rounded-md p-1 hover:bg-gray-100"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <Bot className="h-4 w-4 text-blue-600" />
+                              </button>
+                            </PopoverTrigger>
+                            <PopoverContent
+                              className="w-80 text-sm"
                               onClick={(e) => e.stopPropagation()}
                             >
-                              <Bot className="h-4 w-4 text-blue-600" />
-                            </button>
-                          </PopoverTrigger>
-                          <PopoverContent
-                            className="w-80 text-sm"
-                            onClick={(e) => e.stopPropagation()}
-                          >
-                            <p className="font-medium mb-1">AI Insight</p>
-                            <p className="text-muted-foreground">
-                              {debtor.aiInsight}
-                            </p>
-                          </PopoverContent>
-                        </Popover>
-                      ) : (
-                        <span className="text-muted-foreground">-</span>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-center">
-                      {debtor.autopilotOff && (
-                        <PauseCircle className="h-4 w-4 text-amber-500 mx-auto" />
-                      )}
-                    </TableCell>
-                  </TableRow>
+                              <p className="font-medium mb-1">AI Insight</p>
+                              <p className="text-muted-foreground">
+                                {debtor.aiInsight}
+                              </p>
+                            </PopoverContent>
+                          </Popover>
+                        ) : (
+                          <span className="text-muted-foreground">-</span>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-center">
+                        {debtor.autopilotOff && (
+                          <PauseCircle className="h-4 w-4 text-amber-500 mx-auto" />
+                        )}
+                      </TableCell>
+                    </TableRow>
+                    {isExpanded && (
+                      <TableRow className="bg-gray-50 hover:bg-gray-50">
+                        <TableCell />
+                        <TableCell colSpan={8} className="py-3">
+                          <InvoiceList invoices={debtor.invoices} />
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </Fragment>
                 )
               })
             )}
@@ -169,5 +222,59 @@ export function DebtorTable({ debtors }: { debtors: DebtorRow[] }) {
         onClose={() => setSelectedDebtor(null)}
       />
     </>
+  )
+}
+
+function InvoiceList({ invoices }: { invoices: DebtorInvoice[] }) {
+  return (
+    <div className="space-y-2">
+      <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+        Facturas pendientes ({invoices.length})
+      </div>
+      <table className="w-full text-sm">
+        <thead className="text-xs text-muted-foreground">
+          <tr>
+            <th className="text-left py-1 pr-4 font-medium">Numero</th>
+            <th className="text-left py-1 pr-4 font-medium">Vencimiento</th>
+            <th className="text-right py-1 pr-4 font-medium">Dias vencida</th>
+            <th className="text-right py-1 pr-4 font-medium">Monto</th>
+            <th className="text-right py-1 pr-4 font-medium">Pagado</th>
+            <th className="text-right py-1 font-medium">Saldo</th>
+          </tr>
+        </thead>
+        <tbody>
+          {invoices.map((inv) => (
+            <tr key={inv.id} className="border-t border-gray-200">
+              <td className="py-1.5 pr-4 font-mono">{inv.numero}</td>
+              <td className="py-1.5 pr-4">
+                {new Date(inv.fechaVencimiento).toLocaleDateString("es-AR")}
+              </td>
+              <td className="py-1.5 pr-4 text-right">
+                {inv.diasVencido > 0 ? (
+                  <span className="text-amber-700">{inv.diasVencido}</span>
+                ) : (
+                  <span className="text-muted-foreground">-</span>
+                )}
+              </td>
+              <td className="py-1.5 pr-4 text-right font-mono">
+                {formatARS(inv.monto)}
+              </td>
+              <td className="py-1.5 pr-4 text-right font-mono">
+                {inv.paidAmount > 0 ? (
+                  <span className="text-blue-700">
+                    {formatARS(inv.paidAmount)}
+                  </span>
+                ) : (
+                  <span className="text-muted-foreground">-</span>
+                )}
+              </td>
+              <td className="py-1.5 text-right font-mono font-semibold">
+                {formatARS(inv.saldo)}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   )
 }

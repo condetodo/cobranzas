@@ -21,6 +21,17 @@ export interface DebtorRow {
   aiInsight: string | null
   autopilotOff: boolean
   invoiceCount: number
+  invoices: DebtorInvoice[]
+}
+
+export interface DebtorInvoice {
+  id: string
+  numero: string
+  fechaVencimiento: Date
+  monto: number
+  paidAmount: number
+  saldo: number
+  diasVencido: number
 }
 
 export default async function CarteraPage() {
@@ -70,28 +81,42 @@ export default async function CarteraPage() {
     },
   })
 
-  // Compute display data. Importante: montoTotal e invoiceCount se computan
-  // siempre en vivo sobre las facturas PENDING actuales, restando paidAmount
-  // para reflejar pagos parciales. El snapshot sirve solo para bucket/score/
-  // aiInsight (métricas históricas del último triage).
+  // Compute display data. Importante: montoTotal, invoiceCount e invoices se
+  // computan siempre en vivo sobre las facturas PENDING actuales, restando
+  // paidAmount para reflejar pagos parciales. El snapshot sirve solo para
+  // bucket/score/aiInsight (métricas históricas del último triage).
+  const now = new Date()
   const debtors: DebtorRow[] = clients.map((client) => {
     const snap = client.triageSnapshots[0]
     const seq = client.outreachSequences[0]
 
-    const montoTotal = client.invoices.reduce(
-      (sum, inv) => sum + Number(inv.monto) - Number(inv.paidAmount ?? 0),
-      0
-    )
-
-    const now = new Date()
-    const diasVencidoMax = Math.max(
-      0,
-      ...client.invoices.map((inv) =>
-        Math.floor(
+    const invoices: DebtorInvoice[] = client.invoices
+      .map((inv) => {
+        const monto = Number(inv.monto)
+        const paidAmount = Number(inv.paidAmount ?? 0)
+        const diasVencido = Math.floor(
           (now.getTime() - inv.fechaVencimiento.getTime()) /
             (1000 * 60 * 60 * 24)
         )
+        return {
+          id: inv.id,
+          numero: inv.numero,
+          fechaVencimiento: inv.fechaVencimiento,
+          monto,
+          paidAmount,
+          saldo: monto - paidAmount,
+          diasVencido,
+        }
+      })
+      // Factura más vieja primero
+      .sort(
+        (a, b) => a.fechaVencimiento.getTime() - b.fechaVencimiento.getTime()
       )
+
+    const montoTotal = invoices.reduce((sum, inv) => sum + inv.saldo, 0)
+    const diasVencidoMax = invoices.reduce(
+      (max, inv) => Math.max(max, inv.diasVencido),
+      0
     )
 
     return {
@@ -107,12 +132,20 @@ export default async function CarteraPage() {
       sequenceState: seq?.state ?? null,
       aiInsight: snap?.aiInsight ?? null,
       autopilotOff: client.autopilotOff,
-      invoiceCount: client.invoices.length,
+      invoiceCount: invoices.length,
+      invoices,
     }
   })
 
-  // Sort by score descending
-  debtors.sort((a, b) => b.score - a.score)
+  // Sort: score desc → diasVencidoMax desc → montoTotal desc.
+  // Score viene del snapshot y empata en 0 cuando no hay triage reciente;
+  // los fallbacks aseguran un orden útil (priorizar mora y monto) cuando eso pasa.
+  debtors.sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score
+    if (b.diasVencidoMax !== a.diasVencidoMax)
+      return b.diasVencidoMax - a.diasVencidoMax
+    return b.montoTotal - a.montoTotal
+  })
 
   return (
     <div className="p-6 space-y-4">
