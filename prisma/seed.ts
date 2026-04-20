@@ -50,13 +50,21 @@ async function main() {
     },
   };
 
+  // Create-only: never overwrite a config the user has already customized via Settings.
+  // Seed runs on every Railway deploy; upserting would silently reset things like
+  // contador.email, business.hours, templates.copy, etc.
+  //
+  // When a new sub-field is added to an existing object config (e.g. adding
+  // "inConversation" to sequence.timeouts), either write a one-off migration script
+  // or add a fallback in the reader — don't rely on seed to migrate.
   for (const [key, value] of Object.entries(defaults)) {
-    await prisma.config.upsert({
-      where: { key },
-      update: { value },
-      create: { key, value },
-    });
-    console.log(`Upserted config "${key}".`);
+    const existing = await prisma.config.findUnique({ where: { key } });
+    if (existing) {
+      console.log(`Config "${key}" already exists, skipping.`);
+      continue;
+    }
+    await prisma.config.create({ data: { key, value } });
+    console.log(`Created config "${key}".`);
   }
 
   console.log("Seed completed.");
