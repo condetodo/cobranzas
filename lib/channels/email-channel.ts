@@ -175,13 +175,36 @@ export class EmailChannel implements OutreachChannel {
       requestBody: { raw },
     })
 
-    const messageId = response.data.id
-    if (!messageId) {
+    const internalId = response.data.id
+    if (!internalId) {
       throw new Error('Gmail API returned no message ID')
     }
 
+    // Gmail's internal id (response.data.id) is NOT the RFC 2822 Message-ID
+    // that appears in the recipient's "In-Reply-To" header when they reply.
+    // Fetch the message back just to read the Message-ID header — that's what
+    // poll-gmail needs to match incoming replies to this outreach.
+    let rfc822MessageId: string | null = null
+    try {
+      const fetched = await gmail.users.messages.get({
+        userId: 'me',
+        id: internalId,
+        format: 'metadata',
+        metadataHeaders: ['Message-ID', 'Message-Id'],
+      })
+      rfc822MessageId =
+        fetched.data.payload?.headers?.find(
+          (h) => h.name?.toLowerCase() === 'message-id'
+        )?.value ?? null
+    } catch (err) {
+      console.warn(
+        '[EmailChannel] No pude leer Message-ID del mail enviado:',
+        err
+      )
+    }
+
     return {
-      externalMessageId: messageId,
+      externalMessageId: rfc822MessageId ?? internalId,
       sentAt: new Date(),
     }
   }

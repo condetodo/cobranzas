@@ -31,6 +31,17 @@ function extractHeader(
     ?.value ?? undefined
 }
 
+/**
+ * Parses a "Name <email@host>" or bare "email@host" From header to just the
+ * email address, lowercased.
+ */
+function parseFromEmail(from: string): string | null {
+  const bracket = from.match(/<([^>]+)>/)
+  if (bracket?.[1]) return bracket[1].trim().toLowerCase()
+  const bare = from.match(/[\w.+-]+@[\w.-]+\.[\w-]+/)
+  return bare?.[0]?.toLowerCase() ?? null
+}
+
 export async function GET() {
   const gmail = getGmailClient()
 
@@ -136,6 +147,28 @@ export async function GET() {
           if (attempt) {
             matchedSequenceId = attempt.sequenceId
             strategy = 'gmailMsgId'
+          }
+        }
+
+        // Fallback: match by sender email against any active sequence's client
+        if (!matchedSequenceId) {
+          const fromEmail = parseFromEmail(from)
+          if (fromEmail) {
+            const client = await prisma.client.findFirst({
+              where: { email: { equals: fromEmail, mode: 'insensitive' } },
+              include: {
+                outreachSequences: {
+                  where: { state: { notIn: ['CLOSED', 'PAID'] } },
+                  orderBy: { startedAt: 'desc' },
+                  take: 1,
+                },
+              },
+            })
+            const seq = client?.outreachSequences[0]
+            if (seq) {
+              matchedSequenceId = seq.id
+              strategy = 'fromAddress'
+            }
           }
         }
 
