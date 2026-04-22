@@ -54,16 +54,37 @@ export default async function AnalisisIAPage() {
     )
   }
 
+  const VALID_BUCKETS = new Set([
+    "SIN_VENCER",
+    "SUAVE",
+    "FIRME",
+    "AVISO_FINAL",
+    "CRITICO",
+  ])
+  const VALID_TEMPLATES = new Set(["soft", "firm", "final"])
+
   const analysis = latestRun.portfolioAnalysis
   const findings =
     (analysis?.findings as unknown as Array<{ text: string; severity: string }>) ??
     []
-  const bucketInsights =
+  // Filtrar entries que no cumplan el shape nuevo — runs viejos previos al
+  // refactor tienen shape distinto y podrían crashear los componentes.
+  const bucketInsights = (
     (analysis?.bucketInsights as unknown as Array<{
       bucket: string
       insight: string
     }>) ?? []
-  const planDeAccion = (analysis?.planDeAccion as unknown as Action[]) ?? []
+  ).filter((i) => i && typeof i.bucket === "string" && VALID_BUCKETS.has(i.bucket))
+
+  const planDeAccion = (
+    (analysis?.planDeAccion as unknown as Action[]) ?? []
+  ).filter(
+    (a) =>
+      a &&
+      typeof a.targetBucket === "string" &&
+      VALID_BUCKETS.has(a.targetBucket) &&
+      VALID_TEMPLATES.has(a.templateCode)
+  )
 
   const bucketCounts = (latestRun.bucketCounts ?? {}) as Record<string, number>
   const bucketAmounts = (latestRun.bucketAmounts ?? {}) as Record<string, number>
