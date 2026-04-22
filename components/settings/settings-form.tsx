@@ -30,6 +30,7 @@ interface SettingsFormProps {
   maxSendFailures: number
   businessHours: BusinessHours
   demoFastMode: boolean
+  demoEnabled: boolean
   contadorEmail: string
   whatsappUrl: string
   templates: Record<string, string>
@@ -42,6 +43,7 @@ export function SettingsForm({
   maxSendFailures: initialMaxFailures,
   businessHours: initialBusinessHours,
   demoFastMode: initialFastMode,
+  demoEnabled: initialDemoEnabled,
   contadorEmail: initialEmail,
   whatsappUrl: initialWhatsapp,
   templates: initialTemplates,
@@ -52,6 +54,7 @@ export function SettingsForm({
   const [maxFailures, setMaxFailures] = useState(initialMaxFailures)
   const [businessHours, setBusinessHours] = useState(initialBusinessHours)
   const [fastMode, setFastMode] = useState(initialFastMode)
+  const [demoEnabled, setDemoEnabled] = useState(initialDemoEnabled)
   const [email, setEmail] = useState(initialEmail)
   const [whatsapp, setWhatsapp] = useState(initialWhatsapp)
   const [templates, setTemplates] = useState(initialTemplates)
@@ -73,6 +76,7 @@ export function SettingsForm({
           "sequence.maxSendFailures": maxFailures,
           "business.hours": businessHours,
           "demo.fastMode": fastMode,
+          "demo.enabled": demoEnabled,
           "contador.email": email,
           "whatsapp.demo.url": whatsapp,
           "templates.copy": templates,
@@ -499,6 +503,41 @@ export function SettingsForm({
                 setTemplates({ ...templates, final: e.target.value })
               }
             />
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Modo demo */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Modo demo</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-start gap-3 rounded-md border border-red-300 bg-red-50 p-3">
+            <input
+              id="demo-enabled"
+              type="checkbox"
+              className="mt-1 h-4 w-4 cursor-pointer"
+              checked={demoEnabled}
+              onChange={(e) => setDemoEnabled(e.target.checked)}
+            />
+            <div className="flex-1 space-y-1">
+              <Label htmlFor="demo-enabled" className="cursor-pointer font-medium">
+                Habilitar acciones de demo
+              </Label>
+              <p className="text-xs text-muted-foreground">
+                Expone el botón <strong>Reset demo</strong> en Cartera, que
+                borra todas las facturas y datos derivados (secuencias,
+                mensajes, análisis IA) para permitir probar distintos Excels
+                desde cero. No toca clientes ni configs.
+              </p>
+              {demoEnabled && (
+                <p className="flex items-center gap-1 text-xs font-semibold text-red-700">
+                  <AlertTriangle className="h-3 w-3" />
+                  Modo demo activo — desactivar antes de entregar al cliente.
+                </p>
+              )}
+            </div>
           </div>
         </CardContent>
       </Card>

@@ -14,6 +14,7 @@ export default async function SettingsPage() {
   const maxSendFailures = await getConfig<number>("sequence.maxSendFailures")
   const businessHours = await getConfig<BusinessHours>("business.hours")
   const demoFastMode = await getConfig<boolean>("demo.fastMode")
+  const demoEnabled = await getConfig<boolean>("demo.enabled")
   const contadorEmail = await getConfig<string>("contador.email")
   const whatsappUrl = await getConfig<string>("whatsapp.demo.url")
   const templates = await getConfig<Record<string, string>>("templates.copy")
@@ -52,6 +53,7 @@ export default async function SettingsPage() {
           }
         }
         demoFastMode={demoFastMode ?? false}
+        demoEnabled={demoEnabled ?? false}
         contadorEmail={contadorEmail ?? ""}
         whatsappUrl={whatsappUrl ?? ""}
         templates={

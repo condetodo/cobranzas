@@ -68,6 +68,7 @@ export const getBusinessHours = async () =>
     timezone: 'America/Argentina/Buenos_Aires',
   }
 export const getDemoFastMode = async () => (await getConfig<boolean>('demo.fastMode')) ?? false
+export const getDemoEnabled = async () => (await getConfig<boolean>('demo.enabled')) ?? false
 export const getContadorEmail = () => getConfigOrThrow<string>('contador.email')
 export const getTemplatesCopy = () => getConfigOrThrow<Record<string, string>>('templates.copy')
 

@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db"
 import { DebtorTable } from "@/components/cartera/debtor-table"
 import { CarteraActions } from "@/components/cartera/cartera-actions"
+import { getDemoEnabled } from "@/lib/config"
 import type { Bucket, SequenceState } from "@prisma/client"
 
 // Force every request to read fresh data from the DB. Sin esto Next cachea la
@@ -36,6 +37,8 @@ export interface DebtorInvoice {
 }
 
 export default async function CarteraPage() {
+  const demoEnabled = await getDemoEnabled()
+
   // Get latest triage run
   const latestRun = await prisma.triageRun.findFirst({
     orderBy: { timestamp: "desc" },
@@ -51,7 +54,7 @@ export default async function CarteraPage() {
               Importa tus datos para empezar a cobrar.
             </p>
           </div>
-          <CarteraActions />
+          <CarteraActions demoEnabled={demoEnabled} />
         </div>
         <div className="rounded-lg border bg-white p-12 text-center">
           <p className="text-lg text-muted-foreground">
@@ -161,7 +164,7 @@ export default async function CarteraPage() {
             {debtors.length} deudores con facturas pendientes
           </p>
         </div>
-        <CarteraActions />
+        <CarteraActions demoEnabled={demoEnabled} />
       </div>
       <DebtorTable debtors={debtors} />
     </div>
