@@ -233,7 +233,7 @@ export async function runTriage(
       data: {
         triageRunId: triageRun.id,
         findings: portfolioAnalysis.findings,
-        segmentos: portfolioAnalysis.segmentos,
+        bucketInsights: portfolioAnalysis.bucketInsights,
         planDeAccion: portfolioAnalysis.planDeAccion,
       },
     })

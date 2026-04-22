@@ -2,45 +2,36 @@ import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/db"
 import { Bucket } from "@prisma/client"
 
-// Map common segment names from AI to bucket enums
-const SEGMENT_TO_BUCKETS: Record<string, Bucket[]> = {
-  // Direct bucket matches
-  "SIN_VENCER": [Bucket.SIN_VENCER],
-  "SUAVE": [Bucket.SUAVE],
-  "FIRME": [Bucket.FIRME],
-  "AVISO_FINAL": [Bucket.AVISO_FINAL],
-  "CRITICO": [Bucket.CRITICO],
-  // AI-generated segment names (Spanish, flexible matching)
-  "Deudores Críticos": [Bucket.CRITICO, Bucket.AVISO_FINAL],
-  "Deudores Medianos en Riesgo": [Bucket.FIRME],
-  "Deudores Menores": [Bucket.SUAVE, Bucket.SIN_VENCER],
-}
+const VALID_BUCKETS: Bucket[] = [
+  Bucket.SIN_VENCER,
+  Bucket.SUAVE,
+  Bucket.FIRME,
+  Bucket.AVISO_FINAL,
+  Bucket.CRITICO,
+]
 
-function resolveBuckets(segment: string): Bucket[] | null {
-  // Exact match first
-  if (SEGMENT_TO_BUCKETS[segment]) return SEGMENT_TO_BUCKETS[segment]
-  // Case-insensitive partial match
-  const lower = segment.toLowerCase()
-  for (const [key, buckets] of Object.entries(SEGMENT_TO_BUCKETS)) {
-    if (key.toLowerCase().includes(lower) || lower.includes(key.toLowerCase())) {
-      return buckets
-    }
-  }
-  // Keyword matching
-  if (lower.includes("crític") || lower.includes("critic") || lower.includes("urgent")) return [Bucket.CRITICO, Bucket.AVISO_FINAL]
-  if (lower.includes("firme") || lower.includes("median") || lower.includes("riesgo")) return [Bucket.FIRME]
-  if (lower.includes("suave") || lower.includes("menor") || lower.includes("preven")) return [Bucket.SUAVE, Bucket.SIN_VENCER]
-  // Fallback: return all buckets
-  return Object.values(Bucket)
-}
-
+/**
+ * Devuelve los deudores del último TriageRun que pertenecen al bucket indicado.
+ * Accepts ?segment=<bucket> for retrocompat con la UI (ex-segment filter), pero
+ * el valor SIEMPRE es un enum Bucket válido — no hay más mapeos heurísticos de
+ * nombres inventados por el Agent B, porque Agent B ahora devuelve targetBucket
+ * directamente.
+ */
 export async function GET(req: NextRequest) {
-  const segment = req.nextUrl.searchParams.get("segment")
-  if (!segment) {
-    return NextResponse.json({ error: "segment required" }, { status: 400 })
+  const raw = req.nextUrl.searchParams.get("segment") ?? req.nextUrl.searchParams.get("bucket")
+  if (!raw) {
+    return NextResponse.json({ error: "bucket required" }, { status: 400 })
   }
 
-  // Get latest triage run
+  if (!VALID_BUCKETS.includes(raw as Bucket)) {
+    return NextResponse.json(
+      { error: `bucket must be one of ${VALID_BUCKETS.join(", ")}` },
+      { status: 400 }
+    )
+  }
+
+  const bucket = raw as Bucket
+
   const latestRun = await prisma.triageRun.findFirst({
     orderBy: { timestamp: "desc" },
   })
@@ -49,17 +40,12 @@ export async function GET(req: NextRequest) {
     return NextResponse.json([])
   }
 
-  const buckets = resolveBuckets(segment)
-
-  // Find snapshots matching the segment bucket(s)
   const snapshots = await prisma.debtorTriageSnapshot.findMany({
     where: {
       triageRunId: latestRun.id,
-      bucket: { in: buckets ?? undefined },
+      bucket,
     },
-    include: {
-      client: true,
-    },
+    include: { client: true },
     orderBy: { score: "desc" },
   })
 

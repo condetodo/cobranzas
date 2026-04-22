@@ -106,13 +106,13 @@ model DebtorTriageSnapshot {
 }
 
 model PortfolioAnalysis {
-  id           String    @id @default(cuid())
-  triageRunId  String    @unique
-  triageRun    TriageRun @relation(fields: [triageRunId], references: [id])
-  findings     Json
-  segmentos    Json
-  planDeAccion Json
-  createdAt    DateTime  @default(now())
+  id             String    @id @default(cuid())
+  triageRunId    String    @unique
+  triageRun      TriageRun @relation(fields: [triageRunId], references: [id])
+  findings       Json
+  bucketInsights Json
+  planDeAccion   Json
+  createdAt      DateTime  @default(now())
 }
 
 // --- Outreach ---

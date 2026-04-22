@@ -2,8 +2,8 @@ import Link from "next/link"
 import { prisma } from "@/lib/db"
 import { ScanSummaryCard } from "@/components/analisis-ia/scan-summary-card"
 import { FindingsList } from "@/components/analisis-ia/findings-list"
-import { SegmentCards } from "@/components/analisis-ia/segment-cards"
-import { ActionPlanList } from "@/components/analisis-ia/action-plan-list"
+import { BucketInsightCards } from "@/components/analisis-ia/bucket-insight-cards"
+import { ActionPlanList, type Action } from "@/components/analisis-ia/action-plan-list"
 import { ReanalyzarButton } from "@/components/analisis-ia/reanalizar-button"
 
 export default async function AnalisisIAPage() {
@@ -53,20 +53,18 @@ export default async function AnalisisIAPage() {
   }
 
   const analysis = latestRun.portfolioAnalysis
-  const findings = (analysis?.findings as Array<{ text: string; severity: string }>) ?? []
-  const segmentos = (analysis?.segmentos as Array<{
-    name: string
-    count: number
-    totalAmount: number
-    ruleDescription: string
-    bucket: string
-  }>) ?? []
-  const planDeAccion = (analysis?.planDeAccion as Array<{
-    title: string
-    description: string
-    targetSegment: string
-    templateCode: string
-  }>) ?? []
+  const findings =
+    (analysis?.findings as unknown as Array<{ text: string; severity: string }>) ??
+    []
+  const bucketInsights =
+    (analysis?.bucketInsights as unknown as Array<{
+      bucket: string
+      insight: string
+    }>) ?? []
+  const planDeAccion = (analysis?.planDeAccion as unknown as Action[]) ?? []
+
+  const bucketCounts = (latestRun.bucketCounts ?? {}) as Record<string, number>
+  const bucketAmounts = (latestRun.bucketAmounts ?? {}) as Record<string, number>
 
   return (
     <div className="p-6 space-y-6">
@@ -80,18 +78,17 @@ export default async function AnalisisIAPage() {
         <ReanalyzarButton />
       </div>
 
-      <ScanSummaryCard
-        run={latestRun}
-        previousRun={previousRun}
-      />
+      <ScanSummaryCard run={latestRun} previousRun={previousRun} />
 
       {findings.length > 0 && <FindingsList findings={findings} />}
 
-      {segmentos.length > 0 && <SegmentCards segmentos={segmentos} />}
+      <BucketInsightCards
+        insights={bucketInsights}
+        bucketCounts={bucketCounts}
+        bucketAmounts={bucketAmounts}
+      />
 
-      {planDeAccion.length > 0 && (
-        <ActionPlanList actions={planDeAccion} />
-      )}
+      {planDeAccion.length > 0 && <ActionPlanList actions={planDeAccion} />}
     </div>
   )
 }

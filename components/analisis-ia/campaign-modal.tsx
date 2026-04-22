@@ -20,13 +20,16 @@ import {
 } from "@/components/ui/select"
 import { Badge } from "@/components/ui/badge"
 import { formatARS } from "@/lib/format"
+import { BUCKET_CONFIG } from "@/lib/bucket-colors"
 import { Loader2, Send, CheckCircle2, XCircle } from "lucide-react"
+import type { Bucket } from "@prisma/client"
 
 interface Action {
   title: string
   description: string
-  targetSegment: string
-  templateCode: string
+  targetBucket: Bucket
+  templateCode: "soft" | "firm" | "final"
+  estimatedRecovery?: number
 }
 
 interface Debtor {
@@ -72,7 +75,7 @@ export function CampaignModal({
     const validCodes = TEMPLATE_OPTIONS.map((o) => o.value)
     setTemplate(validCodes.includes(action.templateCode) ? action.templateCode : "soft")
     setState("loading")
-    fetch(`/api/debtors/by-segment?segment=${action.targetSegment}`)
+    fetch(`/api/debtors/by-segment?bucket=${action.targetBucket}`)
       .then((r) => r.json())
       .then((data: Debtor[]) => {
         setDebtors(data)
@@ -128,7 +131,8 @@ export function CampaignModal({
         <DialogHeader>
           <DialogTitle>Ejecutar campana</DialogTitle>
           <DialogDescription>
-            {action?.title} - {action?.targetSegment}
+            {action?.title}
+            {action && ` — ${BUCKET_CONFIG[action.targetBucket].label}`}
           </DialogDescription>
         </DialogHeader>
 
