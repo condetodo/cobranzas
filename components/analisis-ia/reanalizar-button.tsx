@@ -2,42 +2,19 @@
 
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
-import { RefreshCw, Loader2 } from "lucide-react"
-import { useRouter } from "next/navigation"
+import { RefreshCw } from "lucide-react"
+import { ReanalyzeDialog } from "./reanalyze-dialog"
 
 export function ReanalyzarButton() {
-  const [loading, setLoading] = useState(false)
-  const router = useRouter()
-
-  async function handleReanalyze() {
-    setLoading(true)
-    try {
-      await fetch("/api/triage", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ source: "MANUAL" }),
-      })
-      router.refresh()
-    } catch {
-      // ignore
-    } finally {
-      setLoading(false)
-    }
-  }
+  const [open, setOpen] = useState(false)
 
   return (
-    <Button
-      variant="outline"
-      size="sm"
-      onClick={handleReanalyze}
-      disabled={loading}
-    >
-      {loading ? (
-        <Loader2 className="h-4 w-4 mr-1 animate-spin" />
-      ) : (
+    <>
+      <Button variant="outline" size="sm" onClick={() => setOpen(true)}>
         <RefreshCw className="h-4 w-4 mr-1" />
-      )}
-      Reanalizar
-    </Button>
+        Reanalizar
+      </Button>
+      <ReanalyzeDialog open={open} onOpenChange={setOpen} />
+    </>
   )
 }

@@ -13,6 +13,7 @@ import {
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { ExcelDropzone } from "@/components/import/excel-dropzone"
+import { ReanalyzeDialog } from "@/components/analisis-ia/reanalyze-dialog"
 import { Upload, Loader2, Bot, Trash2 } from "lucide-react"
 import { useRouter } from "next/navigation"
 
@@ -25,29 +26,8 @@ export function CarteraActions({ demoEnabled }: CarteraActionsProps) {
   const [resetOpen, setResetOpen] = useState(false)
   const [resetConfirmText, setResetConfirmText] = useState("")
   const [resetting, setResetting] = useState(false)
-  const [reanalyzing, setReanalyzing] = useState(false)
+  const [reanalyzeOpen, setReanalyzeOpen] = useState(false)
   const router = useRouter()
-
-  async function handleReanalyze() {
-    setReanalyzing(true)
-    try {
-      const res = await fetch("/api/triage", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ source: "MANUAL" }),
-      })
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}))
-        alert(`Error: ${data?.error ?? "no se pudo reanalizar"}`)
-        return
-      }
-      router.refresh()
-    } catch (err: any) {
-      alert(`Error: ${err?.message ?? "fallo la conexion"}`)
-    } finally {
-      setReanalyzing(false)
-    }
-  }
 
   async function handleReset() {
     setResetting(true)
@@ -87,16 +67,16 @@ export function CarteraActions({ demoEnabled }: CarteraActionsProps) {
       <Button
         variant="outline"
         size="sm"
-        onClick={handleReanalyze}
-        disabled={reanalyzing}
+        onClick={() => setReanalyzeOpen(true)}
       >
-        {reanalyzing ? (
-          <Loader2 className="h-4 w-4 mr-1 animate-spin" />
-        ) : (
-          <Bot className="h-4 w-4 mr-1" />
-        )}
-        {reanalyzing ? "Analizando..." : "Reanalizar con IA"}
+        <Bot className="h-4 w-4 mr-1" />
+        Reanalizar con IA
       </Button>
+
+      <ReanalyzeDialog
+        open={reanalyzeOpen}
+        onOpenChange={setReanalyzeOpen}
+      />
 
       <Button size="sm" onClick={() => setImportOpen(true)}>
         <Upload className="h-4 w-4 mr-1" />

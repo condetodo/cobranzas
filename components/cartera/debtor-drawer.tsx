@@ -22,6 +22,7 @@ import {
   ArrowUpRight,
   ArrowDownLeft,
   Loader2,
+  Sparkles,
 } from "lucide-react"
 
 interface InvoiceData {
@@ -97,6 +98,21 @@ export function DebtorDrawer({
             </SheetHeader>
 
             <div className="mt-4 space-y-4">
+              {/* AI insight del Agent A */}
+              {debtor.aiInsight && (
+                <div className="flex gap-2 rounded-lg border border-violet-200 bg-violet-50 p-3">
+                  <Sparkles className="h-4 w-4 mt-0.5 shrink-0 text-violet-600" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-violet-700">
+                      Insight IA
+                    </p>
+                    <p className="text-sm text-violet-900 mt-0.5">
+                      {debtor.aiInsight}
+                    </p>
+                  </div>
+                </div>
+              )}
+
               {/* Contact info */}
               <div className="space-y-2">
                 {debtor.email && (
