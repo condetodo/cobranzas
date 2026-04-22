@@ -1,7 +1,7 @@
 "use client"
 
 import { Fragment, useState } from "react"
-import { useRouter } from "next/navigation"
+import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import type { DebtorRow, DebtorInvoice } from "@/app/(app)/cartera/page"
 import { Badge } from "@/components/ui/badge"
 import {
@@ -30,6 +30,15 @@ import {
   Loader2,
 } from "lucide-react"
 
+const VALID_BUCKETS = new Set([
+  "ALL",
+  "SIN_VENCER",
+  "SUAVE",
+  "FIRME",
+  "AVISO_FINAL",
+  "CRITICO",
+])
+
 const STATE_LABELS: Record<string, string> = {
   SCHEDULED: "Programado",
   SENT_SOFT: "Enviado suave",
@@ -45,11 +54,29 @@ const STATE_LABELS: Record<string, string> = {
 }
 
 export function DebtorTable({ debtors }: { debtors: DebtorRow[] }) {
+  const router = useRouter()
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
+
+  const initialBucket = (() => {
+    const fromUrl = searchParams.get("bucket")
+    return fromUrl && VALID_BUCKETS.has(fromUrl) ? fromUrl : "ALL"
+  })()
+
   const [search, setSearch] = useState("")
-  const [bucket, setBucket] = useState("ALL")
+  const [bucket, setBucket] = useState(initialBucket)
   const [autopilotOffOnly, setAutopilotOffOnly] = useState(false)
   const [selectedDebtor, setSelectedDebtor] = useState<DebtorRow | null>(null)
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set())
+
+  function handleBucketChange(newBucket: string) {
+    setBucket(newBucket)
+    const params = new URLSearchParams(searchParams.toString())
+    if (newBucket === "ALL") params.delete("bucket")
+    else params.set("bucket", newBucket)
+    const qs = params.toString()
+    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false })
+  }
 
   function toggleExpanded(id: string) {
     setExpandedIds((prev) => {
@@ -78,7 +105,7 @@ export function DebtorTable({ debtors }: { debtors: DebtorRow[] }) {
         search={search}
         onSearchChange={setSearch}
         bucket={bucket}
-        onBucketChange={setBucket}
+        onBucketChange={handleBucketChange}
         autopilotOffOnly={autopilotOffOnly}
         onAutopilotOffChange={setAutopilotOffOnly}
       />
