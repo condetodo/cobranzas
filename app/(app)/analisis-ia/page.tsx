@@ -5,6 +5,8 @@ import { FindingsList } from "@/components/analisis-ia/findings-list"
 import { BucketInsightCards } from "@/components/analisis-ia/bucket-insight-cards"
 import { ActionPlanList, type Action } from "@/components/analisis-ia/action-plan-list"
 import { ReanalyzarButton } from "@/components/analisis-ia/reanalizar-button"
+import { EvolutionPanel } from "@/components/analisis-ia/evolution-panel"
+import { computeEvolution } from "@/lib/triage/evolution"
 
 export default async function AnalisisIAPage() {
   // Get the latest triage run with analysis
@@ -66,6 +68,11 @@ export default async function AnalisisIAPage() {
   const bucketCounts = (latestRun.bucketCounts ?? {}) as Record<string, number>
   const bucketAmounts = (latestRun.bucketAmounts ?? {}) as Record<string, number>
 
+  // Evolución: solo tiene sentido si hay un run anterior contra el cual comparar
+  const evolution = previousRun
+    ? await computeEvolution(latestRun.id, previousRun.id)
+    : null
+
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">
@@ -79,6 +86,8 @@ export default async function AnalisisIAPage() {
       </div>
 
       <ScanSummaryCard run={latestRun} previousRun={previousRun} />
+
+      {evolution && <EvolutionPanel evolution={evolution} />}
 
       {findings.length > 0 && <FindingsList findings={findings} />}
 
