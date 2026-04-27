@@ -12,6 +12,7 @@ import {
 } from '@/lib/config'
 import { assignBucket } from '@/lib/triage/buckets'
 import { renderTemplate } from '@/lib/templates/render'
+import { computeTemplateVars } from '@/lib/templates/compute-vars'
 import { EmailChannel } from '@/lib/channels/email-channel'
 import { WhatsAppDemoChannel } from '@/lib/channels/whatsapp-demo-channel'
 import { OutreachChannel } from '@/lib/channels/types'
@@ -19,7 +20,6 @@ import { transitionSequence } from '@/lib/state-machine/transitions'
 import { isValidTransition } from '@/lib/state-machine/states'
 import { auditLog } from '@/lib/audit'
 import { Channel, SequenceState } from '@prisma/client'
-import { Decimal } from '@prisma/client/runtime/library'
 
 const RequestSchema = {
   parse(body: unknown): { debtorIds: string[]; templateCode: string; channel?: Channel } {
@@ -66,49 +66,6 @@ function resolveChannel(
   if (client.email) return new EmailChannel()
   if (client.telefono) return new WhatsAppDemoChannel()
   throw new Error('Client has no email or phone number')
-}
-
-function computeTemplateVars(
-  client: { razonSocial: string },
-  pendingInvoices: Array<{ monto: Decimal; fechaVencimiento: Date }>
-): Record<string, string> {
-  const now = new Date()
-  const montoTotal = pendingInvoices.reduce(
-    (sum, inv) => sum + Number(inv.monto),
-    0
-  )
-  const oldestInvoice = pendingInvoices.reduce(
-    (oldest, inv) =>
-      inv.fechaVencimiento < oldest.fechaVencimiento ? inv : oldest,
-    pendingInvoices[0]
-  )
-  const diasVencido = Math.max(
-    0,
-    Math.floor(
-      (now.getTime() - oldestInvoice.fechaVencimiento.getTime()) /
-        (1000 * 60 * 60 * 24)
-    )
-  )
-  // For invoices not yet due, compute days remaining
-  const nearestFuture = pendingInvoices
-    .filter((inv) => inv.fechaVencimiento > now)
-    .sort((a, b) => a.fechaVencimiento.getTime() - b.fechaVencimiento.getTime())[0]
-  const diasRestantes = nearestFuture
-    ? Math.ceil(
-        (nearestFuture.fechaVencimiento.getTime() - now.getTime()) /
-          (1000 * 60 * 60 * 24)
-      )
-    : 0
-
-  return {
-    razonSocial: client.razonSocial,
-    montoTotal: montoTotal.toLocaleString('es-AR', {
-      minimumFractionDigits: 2,
-    }),
-    diasVencido: String(diasVencido),
-    fechaVencimiento: oldestInvoice.fechaVencimiento.toLocaleDateString('es-AR'),
-    diasRestantes: String(diasRestantes),
-  }
 }
 
 /**

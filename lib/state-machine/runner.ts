@@ -13,6 +13,7 @@ import {
 } from '../config'
 import { isWithinBusinessHours } from '../business-hours'
 import { renderTemplate } from '../templates/render'
+import { computeTemplateVars } from '../templates/compute-vars'
 import { transitionSequence } from './transitions'
 import { EmailChannel } from '../channels/email-channel'
 import { WhatsAppDemoChannel } from '../channels/whatsapp-demo-channel'
@@ -81,13 +82,22 @@ export async function advanceSequences(): Promise<{
   const gateOpen = fastMode || isWithinBusinessHours(now, businessHours)
 
   // ── Sub-routine 1: advance ACTIVE_SEND sequences ────────────────────────
+  // Invoices are included so computeTemplateVars can resolve {{montoTotal}},
+  // {{diasVencido}}, etc. — without them the cron would mail FIRM/FINAL with
+  // raw {{placeholders}} because only razonSocial was being substituted.
   const sequences = await prisma.outreachSequence.findMany({
     where: {
       state: { in: ACTIVE_SEND_STATES },
       nextActionAt: { lte: now },
       client: { autopilotOff: false },
     },
-    include: { client: true },
+    include: {
+      client: {
+        include: {
+          invoices: { where: { estado: 'PENDING' } },
+        },
+      },
+    },
   })
 
   for (const seq of sequences) {
@@ -131,10 +141,7 @@ export async function advanceSequences(): Promise<{
         )
       }
 
-      const templateVars: Record<string, string> = {
-        razonSocial: seq.client.razonSocial,
-        clientCod: seq.client.cod,
-      }
+      const templateVars = computeTemplateVars(seq.client, seq.client.invoices)
       const renderedMessage = renderTemplate(templateText, templateVars)
 
       const channel = channelForStage(templateCode, channels)
