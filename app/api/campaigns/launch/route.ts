@@ -16,6 +16,7 @@ import { EmailChannel } from '@/lib/channels/email-channel'
 import { WhatsAppDemoChannel } from '@/lib/channels/whatsapp-demo-channel'
 import { OutreachChannel } from '@/lib/channels/types'
 import { transitionSequence } from '@/lib/state-machine/transitions'
+import { isValidTransition } from '@/lib/state-machine/states'
 import { auditLog } from '@/lib/audit'
 import { Channel, SequenceState } from '@prisma/client'
 import { Decimal } from '@prisma/client/runtime/library'
@@ -199,6 +200,19 @@ export async function POST(req: NextRequest) {
         })
       }
 
+      // Guard against relaunching an earlier stage on a sequence that already
+      // advanced. Without this, the email would still be sent and only the
+      // state transition would fail downstream — leaving an OutreachAttempt
+      // with no matching state change. Skip and report instead of sending.
+      const targetStateForCheck = sentStateForTemplate(input.templateCode)
+      if (!isValidTransition(sequence.state, targetStateForCheck)) {
+        results.skipped++
+        results.errors.push(
+          `${client.cod}: secuencia en estado ${sequence.state}, no puede volver a ${targetStateForCheck}`
+        )
+        continue
+      }
+
       let channel: OutreachChannel
       try {
         channel = resolveChannel(input.channel, client, input.templateCode, channelsConfig)
@@ -255,9 +269,10 @@ export async function POST(req: NextRequest) {
           actorId: userId,
         })
       } catch (transitionErr: any) {
-        // If transition fails but email was sent, still count as sent
-        // This can happen if the sequence was already in a non-SCHEDULED state
-        console.warn(`Transition warning for ${client.cod}: ${transitionErr.message}`)
+        // Should be rare now that we pre-validate above. Surviving cause is a
+        // race with the cron runner advancing the state between our check
+        // and this call. Email already went out — count as sent and move on.
+        console.info(`[launch] Transition skipped for ${client.cod} (likely race with runner): ${transitionErr.message}`)
       }
 
       results.sent++

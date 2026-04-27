@@ -70,6 +70,7 @@ export async function GET() {
   const history = historyResponse.data.history ?? []
   let processed = 0
   let unmatched = 0
+  let errors = 0
   const matchingDetails: Array<{ msgId: string; matched: boolean; strategy?: string; category?: string }> = []
   let newHistoryId = historyResponse.data.historyId ?? lastHistoryId
 
@@ -198,22 +199,34 @@ export async function GET() {
         }
       } catch (err) {
         console.error(`[poll-gmail] Error processing message ${msgId}:`, err)
+        errors++
       }
     }
   }
 
-  // Save new history ID
-  if (newHistoryId !== lastHistoryId) {
+  // Only advance historyId when no errors occurred — otherwise a transient
+  // failure (Anthropic timeout, DB blip, malformed message) would skip the
+  // failed messages permanently on the next tick. Trade-off (acknowledged):
+  // processIncomingMessage is NOT idempotent — re-running it on a recovered
+  // message duplicates the IncomingMessage row, re-charges Agent C, and may
+  // resend the conversational reply. In demo volumes this is rare and
+  // recoverable; silent message loss is not. TODO: dedupe by gmailMsgId at
+  // the IncomingMessage level (requires schema migration).
+  if (errors === 0 && newHistoryId !== lastHistoryId) {
     await setConfig('gmail.lastHistoryId', newHistoryId)
   }
 
-  console.log(`[poll-gmail] done. processed=${processed} unmatched=${unmatched}`)
+  console.log(
+    `[poll-gmail] done. processed=${processed} unmatched=${unmatched} errors=${errors} historyAdvanced=${errors === 0}`
+  )
 
   return NextResponse.json({
     status: 'ok',
     processed,
     unmatched,
-    newHistoryId,
+    errors,
+    newHistoryId: errors === 0 ? newHistoryId : lastHistoryId,
+    historyAdvanced: errors === 0,
     matchingDetails,
   })
 }
