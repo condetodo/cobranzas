@@ -14,7 +14,7 @@ import { assignBucket } from '@/lib/triage/buckets'
 import { renderTemplate } from '@/lib/templates/render'
 import { computeTemplateVars } from '@/lib/templates/compute-vars'
 import { EmailChannel } from '@/lib/channels/email-channel'
-import { WhatsAppDemoChannel } from '@/lib/channels/whatsapp-demo-channel'
+import { EvolutionChannel } from '@/lib/channels/whatsapp-demo-channel'
 import { OutreachChannel } from '@/lib/channels/types'
 import { transitionSequence } from '@/lib/state-machine/transitions'
 import { isValidTransition } from '@/lib/state-machine/states'
@@ -49,7 +49,7 @@ function resolveChannel(
 ): OutreachChannel {
   // 1. Explicit override from the request wins
   if (preferredChannel === 'WHATSAPP' && client.telefono) {
-    return new WhatsAppDemoChannel()
+    return new EvolutionChannel()
   }
   if (preferredChannel === 'EMAIL' && client.email) {
     return new EmailChannel()
@@ -58,13 +58,13 @@ function resolveChannel(
   // 2. Otherwise, honour the per-stage policy configured in Settings
   if (templateCode === 'soft' || templateCode === 'firm' || templateCode === 'final') {
     const configured = channelsConfig[templateCode]
-    if (configured === 'WHATSAPP' && client.telefono) return new WhatsAppDemoChannel()
+    if (configured === 'WHATSAPP' && client.telefono) return new EvolutionChannel()
     if (configured === 'EMAIL' && client.email) return new EmailChannel()
   }
 
   // 3. Fallback: whatever contact info is available
   if (client.email) return new EmailChannel()
-  if (client.telefono) return new WhatsAppDemoChannel()
+  if (client.telefono) return new EvolutionChannel()
   throw new Error('Client has no email or phone number')
 }
 

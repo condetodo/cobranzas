@@ -5,7 +5,7 @@ import { generateConversationalReply } from '@/lib/agents/agent-e-conversational
 import { sendToAccountant } from '@/lib/contador/workflow'
 import { transitionSequence } from '@/lib/state-machine/transitions'
 import { EmailChannel } from '@/lib/channels/email-channel'
-import { WhatsAppDemoChannel } from '@/lib/channels/whatsapp-demo-channel'
+import { EvolutionChannel } from '@/lib/channels/whatsapp-demo-channel'
 import { OutreachChannel } from '@/lib/channels/types'
 import { auditLog } from '@/lib/audit'
 import {
@@ -24,7 +24,7 @@ export interface IncomingMessageParams {
 }
 
 function getChannelInstance(channel: Channel): OutreachChannel {
-  return channel === 'WHATSAPP' ? new WhatsAppDemoChannel() : new EmailChannel()
+  return channel === 'WHATSAPP' ? new EvolutionChannel() : new EmailChannel()
 }
 
 export async function processIncomingMessage(

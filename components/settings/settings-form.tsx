@@ -21,6 +21,7 @@ import type {
   SequenceChannels,
   StageChannel,
   BusinessHours,
+  EvolutionConfig,
 } from "@/lib/config"
 
 interface SettingsFormProps {
@@ -32,7 +33,7 @@ interface SettingsFormProps {
   demoFastMode: boolean
   demoEnabled: boolean
   contadorEmail: string
-  whatsappUrl: string
+  evolutionConfig: EvolutionConfig
   templates: Record<string, string>
 }
 
@@ -45,7 +46,7 @@ export function SettingsForm({
   demoFastMode: initialFastMode,
   demoEnabled: initialDemoEnabled,
   contadorEmail: initialEmail,
-  whatsappUrl: initialWhatsapp,
+  evolutionConfig: initialEvolution,
   templates: initialTemplates,
 }: SettingsFormProps) {
   const [aging, setAging] = useState(initialAging)
@@ -56,7 +57,7 @@ export function SettingsForm({
   const [fastMode, setFastMode] = useState(initialFastMode)
   const [demoEnabled, setDemoEnabled] = useState(initialDemoEnabled)
   const [email, setEmail] = useState(initialEmail)
-  const [whatsapp, setWhatsapp] = useState(initialWhatsapp)
+  const [evolution, setEvolution] = useState(initialEvolution)
   const [templates, setTemplates] = useState(initialTemplates)
   const [saving, startSave] = useTransition()
   const [saved, setSaved] = useState(false)
@@ -78,7 +79,7 @@ export function SettingsForm({
           "demo.fastMode": fastMode,
           "demo.enabled": demoEnabled,
           "contador.email": email,
-          "whatsapp.demo.url": whatsapp,
+          "whatsapp.evolution": evolution,
           "templates.copy": templates,
         }),
       })
@@ -94,15 +95,20 @@ export function SettingsForm({
       const res = await fetch("/api/whatsapp/test", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url: whatsapp }),
+        body: JSON.stringify({
+          url: evolution.url,
+          instance: evolution.instance,
+          apiKey: evolution.apiKey,
+        }),
       })
-      if (res.ok) {
-        setWaResult("Conexion exitosa")
+      const data = await res.json()
+      if (res.ok && data.ok) {
+        setWaResult(`Conexion exitosa (state: ${data.state})`)
       } else {
-        setWaResult("Error de conexion")
+        setWaResult(`Error: ${data.error ?? data.detail ?? res.status}`)
       }
-    } catch {
-      setWaResult("Error de conexion")
+    } catch (err: any) {
+      setWaResult(`Error de conexion: ${err?.message ?? "unknown"}`)
     } finally {
       setTestingWa(false)
     }
@@ -169,23 +175,70 @@ export function SettingsForm({
         </CardContent>
       </Card>
 
-      {/* WhatsApp Demo */}
+      {/* WhatsApp via Evolution API */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">WhatsApp Demo</CardTitle>
+          <CardTitle className="text-base">WhatsApp (Evolution API)</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
-          <div className="flex gap-2">
-            <Input
-              placeholder="https://whatsapp-api-url.example.com"
-              value={whatsapp}
-              onChange={(e) => setWhatsapp(e.target.value)}
-              className="flex-1"
-            />
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <Label htmlFor="evo-url">URL base</Label>
+              <Input
+                id="evo-url"
+                placeholder="http://165.227.91.139:8080"
+                value={evolution.url}
+                onChange={(e) =>
+                  setEvolution({ ...evolution, url: e.target.value })
+                }
+              />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="evo-instance">Instancia</Label>
+              <Input
+                id="evo-instance"
+                placeholder="asistente-atla"
+                value={evolution.instance}
+                onChange={(e) =>
+                  setEvolution({ ...evolution, instance: e.target.value })
+                }
+              />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="evo-key">API key</Label>
+              <Input
+                id="evo-key"
+                type="password"
+                placeholder="apikey de Evolution"
+                value={evolution.apiKey}
+                onChange={(e) =>
+                  setEvolution({ ...evolution, apiKey: e.target.value })
+                }
+              />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="evo-secret">Webhook secret</Label>
+              <Input
+                id="evo-secret"
+                type="password"
+                placeholder="?key=... en la URL del webhook"
+                value={evolution.webhookSecret}
+                onChange={(e) =>
+                  setEvolution({ ...evolution, webhookSecret: e.target.value })
+                }
+              />
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
             <Button
               variant="outline"
               onClick={testWhatsapp}
-              disabled={testingWa || !whatsapp}
+              disabled={
+                testingWa ||
+                !evolution.url ||
+                !evolution.instance ||
+                !evolution.apiKey
+              }
             >
               {testingWa ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
@@ -194,18 +247,25 @@ export function SettingsForm({
               )}
               Probar conexion
             </Button>
+            {waResult && (
+              <p
+                className={`text-sm ${
+                  waResult.startsWith("Conexion exitosa")
+                    ? "text-green-600"
+                    : "text-red-600"
+                }`}
+              >
+                {waResult}
+              </p>
+            )}
           </div>
-          {waResult && (
-            <p
-              className={`text-sm ${
-                waResult.includes("exitosa")
-                  ? "text-green-600"
-                  : "text-red-600"
-              }`}
-            >
-              {waResult}
-            </p>
-          )}
+          <p className="text-xs text-muted-foreground">
+            En Evolution, configurá el webhook saliente apuntando a{" "}
+            <code className="text-[11px]">
+              /api/incoming-whatsapp?key=&lt;webhook secret&gt;
+            </code>{" "}
+            con el evento <code className="text-[11px]">MESSAGES_UPSERT</code> activado.
+          </p>
         </CardContent>
       </Card>
 

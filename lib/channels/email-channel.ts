@@ -18,13 +18,25 @@ function buildHtmlBody(params: {
   bodyText: string
   templateCode: string
 }): string {
-  const accentColor = params.templateCode === 'final' ? '#DC2626'
-    : params.templateCode === 'firm' ? '#D97706'
-    : '#2563EB'
+  const HEADER_BY_CODE: Record<string, string> = {
+    soft: 'Recordatorio de Pago',
+    firm: 'Aviso de Deuda',
+    final: 'AVISO FINAL',
+    paid: 'Confirmación de Pago',
+    postPartial: 'Confirmación de Pago Parcial',
+    rejection: 'Comprobante no validado',
+    conversational_reply: 'Respuesta a su consulta',
+  }
+  const ACCENT_BY_CODE: Record<string, string> = {
+    final: '#DC2626',
+    firm: '#D97706',
+    rejection: '#DC2626',
+    paid: '#16A34A',
+    postPartial: '#16A34A',
+  }
 
-  const headerText = params.templateCode === 'final' ? 'AVISO FINAL'
-    : params.templateCode === 'firm' ? 'Aviso de Deuda'
-    : 'Recordatorio de Pago'
+  const headerText = HEADER_BY_CODE[params.templateCode] ?? 'Recordatorio de Pago'
+  const accentColor = ACCENT_BY_CODE[params.templateCode] ?? '#2563EB'
 
   // Convert plain text line breaks to HTML paragraphs
   const bodyHtml = params.bodyText

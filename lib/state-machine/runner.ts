@@ -16,7 +16,7 @@ import { renderTemplate } from '../templates/render'
 import { computeTemplateVars } from '../templates/compute-vars'
 import { transitionSequence } from './transitions'
 import { EmailChannel } from '../channels/email-channel'
-import { WhatsAppDemoChannel } from '../channels/whatsapp-demo-channel'
+import { EvolutionChannel } from '../channels/whatsapp-demo-channel'
 import { OutreachChannel } from '../channels/types'
 
 // NOTE: previously this used pg_try_advisory_lock + pg_advisory_unlock to
@@ -41,7 +41,7 @@ const NEXT_STATE: Record<string, SequenceState> = {
 }
 
 function channelInstance(name: StageChannel): OutreachChannel {
-  return name === 'WHATSAPP' ? new WhatsAppDemoChannel() : new EmailChannel()
+  return name === 'WHATSAPP' ? new EvolutionChannel() : new EmailChannel()
 }
 
 function channelForStage(

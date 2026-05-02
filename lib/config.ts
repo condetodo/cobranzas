@@ -43,6 +43,13 @@ export interface SequenceChannels {
   final: StageChannel
 }
 
+export interface EvolutionConfig {
+  url: string           // base URL of Evolution API, e.g. http://165.227.91.139:8080
+  instance: string      // instance name, e.g. asistente-atla
+  apiKey: string        // Evolution API key (header `apikey`)
+  webhookSecret: string // shared secret validated as ?key= on incoming webhook
+}
+
 export interface BusinessHours {
   start: string       // "HH:MM" 24h
   end: string         // "HH:MM" 24h
@@ -70,6 +77,13 @@ export const getBusinessHours = async () =>
 export const getDemoFastMode = async () => (await getConfig<boolean>('demo.fastMode')) ?? false
 export const getDemoEnabled = async () => (await getConfig<boolean>('demo.enabled')) ?? false
 export const getContadorEmail = () => getConfigOrThrow<string>('contador.email')
+export const getEvolutionConfig = async () =>
+  (await getConfig<EvolutionConfig>('whatsapp.evolution')) ?? {
+    url: '',
+    instance: '',
+    apiKey: '',
+    webhookSecret: '',
+  }
 export const getTemplatesCopy = () => getConfigOrThrow<Record<string, string>>('templates.copy')
 
 /**

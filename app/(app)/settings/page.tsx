@@ -5,6 +5,7 @@ import type {
   SequenceTimeouts,
   SequenceChannels,
   BusinessHours,
+  EvolutionConfig,
 } from "@/lib/config"
 
 export default async function SettingsPage() {
@@ -16,7 +17,7 @@ export default async function SettingsPage() {
   const demoFastMode = await getConfig<boolean>("demo.fastMode")
   const demoEnabled = await getConfig<boolean>("demo.enabled")
   const contadorEmail = await getConfig<string>("contador.email")
-  const whatsappUrl = await getConfig<string>("whatsapp.demo.url")
+  const evolutionConfig = await getConfig<EvolutionConfig>("whatsapp.evolution")
   const templates = await getConfig<Record<string, string>>("templates.copy")
 
   return (
@@ -55,7 +56,14 @@ export default async function SettingsPage() {
         demoFastMode={demoFastMode ?? false}
         demoEnabled={demoEnabled ?? false}
         contadorEmail={contadorEmail ?? ""}
-        whatsappUrl={whatsappUrl ?? ""}
+        evolutionConfig={
+          evolutionConfig ?? {
+            url: "",
+            instance: "",
+            apiKey: "",
+            webhookSecret: "",
+          }
+        }
         templates={
           templates ?? { soft: "", firm: "", final: "" }
         }

@@ -1,11 +1,18 @@
-/**
- * DEMO-ONLY WhatsApp channel via Evolution Bot adapter.
- * Will throw in production to prevent accidental use.
- */
 import { Channel, Client } from '@prisma/client'
 import { OutreachChannel, SendResult } from './types'
+import { getEvolutionConfig } from '@/lib/config'
+import { toEvolutionNumber } from '@/lib/utils/phone'
 
-export class WhatsAppDemoChannel implements OutreachChannel {
+/**
+ * WhatsApp channel via Evolution API v2.
+ *
+ * Calls `POST {url}/message/sendText/{instance}` with header `apikey: <key>`.
+ * Config comes from the DB (`whatsapp.evolution`), set from the Settings UI.
+ *
+ * Note: file kept under the legacy `whatsapp-demo-channel` filename to avoid
+ * churning imports across the codebase. The class is `EvolutionChannel`.
+ */
+export class EvolutionChannel implements OutreachChannel {
   readonly name: Channel = 'WHATSAPP'
 
   async send(params: {
@@ -15,55 +22,48 @@ export class WhatsAppDemoChannel implements OutreachChannel {
     sequenceId: string
     renderedMessage: string
   }): Promise<SendResult> {
-    if (process.env.NODE_ENV === 'production') {
+    const cfg = await getEvolutionConfig()
+    if (!cfg.url || !cfg.instance || !cfg.apiKey) {
       throw new Error(
-        'WhatsAppDemoChannel is DEMO-ONLY and cannot be used in production'
+        'Evolution config incomplete: set whatsapp.evolution { url, instance, apiKey } in Settings'
       )
     }
 
-    const endpoint = process.env.WHATSAPP_DEMO_ENDPOINT
-    if (!endpoint) {
-      throw new Error('WHATSAPP_DEMO_ENDPOINT env var is not set')
-    }
-    const apiKey = process.env.WHATSAPP_DEMO_API_KEY
-    if (!apiKey) {
-      throw new Error('WHATSAPP_DEMO_API_KEY env var is not set')
-    }
-
-    const to = params.client.telefono
-    if (!to) {
+    const phone = params.client.telefono
+    if (!phone) {
       throw new Error(
         `Client ${params.client.id} (${params.client.cod}) has no phone number`
       )
     }
 
-    const body = {
-      to,
-      message: params.renderedMessage,
-      messageType: params.templateCode,
-      debtorId: params.client.id,
-      outreachSequenceId: params.sequenceId,
-    }
+    const number = toEvolutionNumber(phone)
+    const endpoint = `${cfg.url.replace(/\/$/, '')}/message/sendText/${encodeURIComponent(cfg.instance)}`
 
-    const response = await fetch(`${endpoint}/cobranzas/send`, {
+    const response = await fetch(endpoint, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`,
+        apikey: cfg.apiKey,
       },
-      body: JSON.stringify(body),
+      body: JSON.stringify({
+        number,
+        text: params.renderedMessage,
+      }),
     })
 
     if (!response.ok) {
       const text = await response.text()
       throw new Error(
-        `WhatsApp demo endpoint error ${response.status}: ${text}`
+        `Evolution send error ${response.status}: ${text}`
       )
     }
 
-    const data = (await response.json()) as { messageId?: string; id?: string }
+    const data = (await response.json()) as {
+      key?: { id?: string }
+      messageId?: string
+    }
     const externalMessageId =
-      data.messageId ?? data.id ?? `demo-${Date.now()}`
+      data.key?.id ?? data.messageId ?? `evo-${Date.now()}`
 
     return {
       externalMessageId,
@@ -71,3 +71,4 @@ export class WhatsAppDemoChannel implements OutreachChannel {
     }
   }
 }
+

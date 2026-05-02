@@ -1,6 +1,6 @@
 import { prisma } from '@/lib/db'
 import { EmailChannel } from './email-channel'
-import { WhatsAppDemoChannel } from './whatsapp-demo-channel'
+import { EvolutionChannel } from './whatsapp-demo-channel'
 import { OutreachChannel } from './types'
 
 /**
@@ -20,14 +20,14 @@ export async function resolveChannelForSequence(
   })
 
   if (lastAttempt?.channel === 'WHATSAPP' && client.telefono) {
-    return new WhatsAppDemoChannel()
+    return new EvolutionChannel()
   }
   if (lastAttempt?.channel === 'EMAIL' && client.email) {
     return new EmailChannel()
   }
 
   if (client.email) return new EmailChannel()
-  if (client.telefono) return new WhatsAppDemoChannel()
+  if (client.telefono) return new EvolutionChannel()
 
   throw new Error('Client has no email or phone number')
 }
