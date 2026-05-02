@@ -16,7 +16,7 @@ export const DEFAULT_TEMPLATES: Record<string, string> = {
     'Quedamos a disposición para coordinar el pago.\n\n' +
     'Atentamente,\nDepartamento de Cobranzas',
 
-  avisoFinal:
+  final:
     'AVISO FINAL\n\n' +
     '{{razonSocial}}, su deuda de {{montoTotal}} lleva {{diasVencido}} días sin pago. ' +
     'De no recibir una respuesta en los próximos {{diasRestantes}} días, ' +

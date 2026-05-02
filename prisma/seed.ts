@@ -43,7 +43,7 @@ async function main() {
     "templates.copy": {
       soft: "Estimado/a {{razonSocial}},\n\nLe recordamos que tiene una factura pendiente por {{montoTotal}} con vencimiento {{fechaVencimiento}}.\n\nAgradecemos su pronta atención.\n\nAtentamente,\nDepartamento de Cobranzas",
       firm: "Estimado/a {{razonSocial}},\n\nSu deuda de {{montoTotal}} lleva {{diasVencido}} días de atraso. Le solicitamos regularizar su situación a la brevedad.\n\nQuedamos a disposición para coordinar el pago.\n\nAtentamente,\nDepartamento de Cobranzas",
-      avisoFinal: "AVISO FINAL\n\n{{razonSocial}}, su deuda de {{montoTotal}} lleva {{diasVencido}} días sin pago. De no recibir una respuesta en los próximos {{diasRestantes}} días, procederemos con las medidas correspondientes.\n\nDepartamento de Cobranzas",
+      final: "AVISO FINAL\n\n{{razonSocial}}, su deuda de {{montoTotal}} lleva {{diasVencido}} días sin pago. De no recibir una respuesta en los próximos {{diasRestantes}} días, procederemos con las medidas correspondientes.\n\nDepartamento de Cobranzas",
       postPartial: "Estimado/a {{razonSocial}},\n\nConfirmamos la recepción de su pago parcial por {{montoPagado}}. Queda un saldo pendiente de {{montoRestante}}.\n\nDepartamento de Cobranzas",
       paid: "Estimado/a {{razonSocial}},\n\nConfirmamos la recepción de su pago por {{montoTotal}}. Muchas gracias por regularizar su situación.\n\nAtentamente,\nDepartamento de Cobranzas",
       rejection: "Lamentamos informarle que el comprobante enviado no pudo ser validado. {{motivoRechazo}}. Por favor envíe un comprobante válido.",
