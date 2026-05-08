@@ -71,6 +71,7 @@ export async function GET() {
   let processed = 0
   let unmatched = 0
   let errors = 0
+  let skipped = 0
   const matchingDetails: Array<{ msgId: string; matched: boolean; strategy?: string; category?: string }> = []
   let newHistoryId = historyResponse.data.historyId ?? lastHistoryId
 
@@ -198,32 +199,48 @@ export async function GET() {
           matchingDetails.push({ msgId, matched: false })
         }
       } catch (err) {
-        console.error(`[poll-gmail] Error processing message ${msgId}:`, err)
-        errors++
+        // Classify: permanent errors (Gmail 404 — message deleted/expunged
+        // after history.list returned it; "Invalid transition" — defensive,
+        // process-message now short-circuits terminal states) shouldn't block
+        // historyId advance. Transient errors (Anthropic timeout, DB blip)
+        // do, so the failed message is retried on the next tick.
+        const status = (err as { code?: number; response?: { status?: number } })?.code
+          ?? (err as { response?: { status?: number } })?.response?.status
+        const message = (err as Error)?.message ?? ''
+        const isPermanent = status === 404 || message.startsWith('Invalid transition:')
+        if (isPermanent) {
+          const reason = status === 404 ? '404 Not Found' : message
+          console.warn(`[poll-gmail] msgId=${msgId} skipped (permanent): ${reason}`)
+          skipped++
+        } else {
+          console.error(`[poll-gmail] Error processing message ${msgId}:`, err)
+          errors++
+        }
       }
     }
   }
 
-  // Only advance historyId when no errors occurred — otherwise a transient
-  // failure (Anthropic timeout, DB blip, malformed message) would skip the
-  // failed messages permanently on the next tick. Trade-off (acknowledged):
-  // processIncomingMessage is NOT idempotent — re-running it on a recovered
-  // message duplicates the IncomingMessage row, re-charges Agent C, and may
-  // resend the conversational reply. In demo volumes this is rare and
-  // recoverable; silent message loss is not. TODO: dedupe by gmailMsgId at
-  // the IncomingMessage level (requires schema migration).
+  // Only block historyId advance for *transient* errors. Permanent errors
+  // (404 from Gmail, etc) will fail forever; retrying creates an infinite
+  // loop and makes 'unmatched' IncomingMessages duplicate every tick.
+  // Trade-off (acknowledged): processIncomingMessage is NOT idempotent — on
+  // a transient recovery the message is reprocessed, duplicating the
+  // IncomingMessage row, re-charging Agent C, and possibly resending the
+  // conversational reply. In demo volumes this is rare and recoverable;
+  // silent message loss is not. TODO: dedupe by gmailMsgId (schema migration).
   if (errors === 0 && newHistoryId !== lastHistoryId) {
     await setConfig('gmail.lastHistoryId', newHistoryId)
   }
 
   console.log(
-    `[poll-gmail] done. processed=${processed} unmatched=${unmatched} errors=${errors} historyAdvanced=${errors === 0}`
+    `[poll-gmail] done. processed=${processed} unmatched=${unmatched} skipped=${skipped} errors=${errors} historyAdvanced=${errors === 0}`
   )
 
   return NextResponse.json({
     status: 'ok',
     processed,
     unmatched,
+    skipped,
     errors,
     newHistoryId: errors === 0 ? newHistoryId : lastHistoryId,
     historyAdvanced: errors === 0,

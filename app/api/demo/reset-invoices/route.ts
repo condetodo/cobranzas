@@ -29,30 +29,35 @@ export async function POST(_req: NextRequest) {
   }
 
   try {
-    const counts = await prisma.$transaction(async (tx) => {
-      // Orden respeta las FKs: primero lo que depende de otros.
-      const accountantConfirmations = await tx.accountantConfirmation.deleteMany()
-      const accountantTokens = await tx.accountantConfirmationToken.deleteMany()
-      const incomingMessages = await tx.incomingMessage.deleteMany()
-      const outreachAttempts = await tx.outreachAttempt.deleteMany()
-      const outreachSequences = await tx.outreachSequence.deleteMany()
-      const snapshots = await tx.debtorTriageSnapshot.deleteMany()
-      const portfolioAnalyses = await tx.portfolioAnalysis.deleteMany()
-      const triageRuns = await tx.triageRun.deleteMany()
-      const invoices = await tx.invoice.deleteMany()
+    const counts = await prisma.$transaction(
+      async (tx) => {
+        // Orden respeta las FKs: primero lo que depende de otros.
+        const accountantConfirmations = await tx.accountantConfirmation.deleteMany()
+        const accountantTokens = await tx.accountantConfirmationToken.deleteMany()
+        const incomingMessages = await tx.incomingMessage.deleteMany()
+        const outreachAttempts = await tx.outreachAttempt.deleteMany()
+        const outreachSequences = await tx.outreachSequence.deleteMany()
+        const snapshots = await tx.debtorTriageSnapshot.deleteMany()
+        const portfolioAnalyses = await tx.portfolioAnalysis.deleteMany()
+        const triageRuns = await tx.triageRun.deleteMany()
+        const invoices = await tx.invoice.deleteMany()
 
-      return {
-        invoices: invoices.count,
-        triageRuns: triageRuns.count,
-        portfolioAnalyses: portfolioAnalyses.count,
-        snapshots: snapshots.count,
-        outreachSequences: outreachSequences.count,
-        outreachAttempts: outreachAttempts.count,
-        incomingMessages: incomingMessages.count,
-        accountantTokens: accountantTokens.count,
-        accountantConfirmations: accountantConfirmations.count,
-      }
-    })
+        return {
+          invoices: invoices.count,
+          triageRuns: triageRuns.count,
+          portfolioAnalyses: portfolioAnalyses.count,
+          snapshots: snapshots.count,
+          outreachSequences: outreachSequences.count,
+          outreachAttempts: outreachAttempts.count,
+          incomingMessages: incomingMessages.count,
+          accountantTokens: accountantTokens.count,
+          accountantConfirmations: accountantConfirmations.count,
+        }
+      },
+      // Operación administrativa con varios deleteMany sobre tablas grandes
+      // (incomingMessage es la más pesada). Default 5s no alcanza.
+      { timeout: 60_000, maxWait: 10_000 }
+    )
 
     await auditLog({
       actorType: 'USER',

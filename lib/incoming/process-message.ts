@@ -42,6 +42,36 @@ export async function processIncomingMessage(
     },
   })
 
+  // Replies arriving on a sequence that's already in a terminal state (PAID,
+  // CLOSED) shouldn't trigger the Agent C classifier or any transition — every
+  // outbound transition from PAID/CLOSED is invalid and would throw. Record
+  // the incoming for audit and bail. Match strategies in poll-gmail (header,
+  // In-Reply-To) don't filter by sequence state, so this guard is required.
+  if (sequence.state === 'PAID' || sequence.state === 'CLOSED') {
+    const skipped = await prisma.incomingMessage.create({
+      data: {
+        sequenceId: params.sequenceId,
+        channel: params.channel,
+        fromAddress: params.fromAddress,
+        text: params.text,
+        mediaUrl: params.mediaUrl,
+        mediaType: params.mediaType,
+      },
+    })
+    await auditLog({
+      actorType: 'SYSTEM',
+      action: 'incoming.skipped.terminal',
+      targetType: 'IncomingMessage',
+      targetId: skipped.id,
+      payload: {
+        sequenceId: params.sequenceId,
+        sequenceState: sequence.state,
+        channel: params.channel,
+      },
+    })
+    return
+  }
+
   // 2. Get conversation context (last 3 messages)
   const recentAttempts = await prisma.outreachAttempt.findMany({
     where: { sequenceId: params.sequenceId },
