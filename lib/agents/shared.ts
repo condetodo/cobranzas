@@ -8,7 +8,7 @@ export function getModel(agentOverrideEnv?: string): string {
     const override = process.env[agentOverrideEnv]
     if (override) return override
   }
-  return process.env.CLAUDE_MODEL_DEFAULT ?? 'claude-sonnet-4-20250514'
+  return process.env.CLAUDE_MODEL_DEFAULT ?? 'claude-sonnet-4-6'
 }
 
 export interface AgentCallOptions {
