@@ -101,8 +101,11 @@ export function ScanSummaryCard({
                 <Badge variant="outline" className={cfg.bgClass + " mb-2"}>
                   {cfg.label}
                 </Badge>
-                <p className="text-lg font-bold">{count}</p>
-                <p className="text-xs text-muted-foreground">
+                <p className="text-lg font-bold leading-tight">{count}</p>
+                <p className="text-[10px] text-muted-foreground leading-tight">
+                  {count === 1 ? "deudor" : "deudores"}
+                </p>
+                <p className="mt-1 text-xs font-medium">
                   {formatARS(amount)}
                 </p>
                 {delta !== null && delta !== 0 && (
@@ -112,6 +115,14 @@ export function ScanSummaryCard({
             )
           })}
         </div>
+
+        {/* Aclaración: las dos unidades de las tarjetas tienen semántica distinta */}
+        <p className="text-[11px] leading-snug text-muted-foreground">
+          <span className="font-medium">Deudores</span>: clasificados por su
+          factura más atrasada ·{" "}
+          <span className="font-medium">Montos</span>: aging real por factura (el
+          saldo no vencido se cuenta en Sin vencer).
+        </p>
       </CardContent>
     </Card>
   )
