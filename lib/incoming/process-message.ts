@@ -8,6 +8,7 @@ import { EmailChannel } from '@/lib/channels/email-channel'
 import { EvolutionChannel } from '@/lib/channels/whatsapp-demo-channel'
 import { OutreachChannel } from '@/lib/channels/types'
 import { auditLog } from '@/lib/audit'
+import { liveActivity } from '@/lib/live/activity-bus'
 import {
   getSequenceTimeouts,
   getDemoFastMode,
@@ -30,6 +31,41 @@ function getChannelInstance(channel: Channel): OutreachChannel {
 export async function processIncomingMessage(
   params: IncomingMessageParams
 ): Promise<void> {
+  // Live-activity tracing (ephemeral, fire-and-forget — never affects logic).
+  const traceId = `in_${Date.now().toString(36)}_${Math.random()
+    .toString(36)
+    .slice(2, 8)}`
+  const startedAt = Date.now()
+  let stepCount = 0
+  // Emit a step_started/step_finished pair around `fn`. Errors from `fn`
+  // propagate (so processing behaves exactly as before); the live event just
+  // records ok:false before rethrowing.
+  async function tracedStep<T>(step: string, fn: () => Promise<T>): Promise<T> {
+    stepCount++
+    liveActivity.emit({ kind: 'step_started', source: 'incoming', traceId, step })
+    try {
+      const result = await fn()
+      liveActivity.emit({
+        kind: 'step_finished',
+        source: 'incoming',
+        traceId,
+        step,
+        ok: true,
+      })
+      return result
+    } catch (err) {
+      liveActivity.emit({
+        kind: 'step_finished',
+        source: 'incoming',
+        traceId,
+        step,
+        ok: false,
+        detail: err instanceof Error ? err.message : String(err),
+      })
+      throw err
+    }
+  }
+
   // 1. Load sequence with client
   const sequence = await prisma.outreachSequence.findUniqueOrThrow({
     where: { id: params.sequenceId },
@@ -40,6 +76,15 @@ export async function processIncomingMessage(
         },
       },
     },
+  })
+
+  liveActivity.emit({
+    kind: 'received',
+    source: 'incoming',
+    traceId,
+    channel: params.channel,
+    sender: sequence.client.razonSocial,
+    preview: params.text.slice(0, 120),
   })
 
   // Replies arriving on a sequence that's already in a terminal state (PAID,
@@ -68,6 +113,15 @@ export async function processIncomingMessage(
         sequenceState: sequence.state,
         channel: params.channel,
       },
+    })
+    liveActivity.emit({ kind: 'routed', source: 'incoming', traceId, route: 'ignored' })
+    liveActivity.emit({
+      kind: 'finished',
+      source: 'incoming',
+      traceId,
+      route: 'ignored',
+      latencyMs: Date.now() - startedAt,
+      steps: stepCount,
     })
     return
   }
@@ -112,10 +166,22 @@ export async function processIncomingMessage(
   })
 
   // 4. Call Agent C classifier
-  const classification: Classification = await classifyResponse({
-    text: params.text,
-    hasMedia: !!(params.mediaUrl || params.mediaType),
-    conversationContext,
+  const classification: Classification = await tracedStep(
+    'Clasificar (Agent C)',
+    () =>
+      classifyResponse({
+        text: params.text,
+        hasMedia: !!(params.mediaUrl || params.mediaType),
+        conversationContext,
+      })
+  )
+
+  liveActivity.emit({
+    kind: 'classified',
+    source: 'incoming',
+    traceId,
+    category: classification.categoria,
+    confidence: classification.confianza,
   })
 
   // 5. Update IncomingMessage with classification
@@ -130,30 +196,48 @@ export async function processIncomingMessage(
     },
   })
 
+  // Track the chosen branch for the final live event.
+  let liveRoute = 'conversacional'
+  let livePreview: string | undefined
+
   // 6. Route by category
   switch (classification.categoria) {
     case 'COMPROBANTE_ADJUNTO': {
-      await transitionSequence(sequence.id, 'AWAITING_ACCOUNTANT', {
-        actorType: 'SYSTEM',
-      })
+      liveRoute = 'contador'
+      liveActivity.emit({ kind: 'routed', source: 'incoming', traceId, route: liveRoute })
+      liveActivity.emit({ kind: 'started', source: 'incoming', traceId, stage: 'Contador' })
+      await tracedStep('Transición → AWAITING_ACCOUNTANT', () =>
+        transitionSequence(sequence.id, 'AWAITING_ACCOUNTANT', {
+          actorType: 'SYSTEM',
+        })
+      )
       // Send to accountant for confirmation
-      await sendToAccountant({
-        sequenceId: sequence.id,
-        incomingMessageId: incomingMsg.id,
-      })
+      await tracedStep('Enviar al contador', () =>
+        sendToAccountant({
+          sequenceId: sequence.id,
+          incomingMessageId: incomingMsg.id,
+        })
+      )
       break
     }
 
     case 'DISPUTA': {
-      await transitionSequence(sequence.id, 'ESCALATED_TO_HUMAN', {
-        escalationReason: `Disputa detectada: ${params.text.slice(0, 200)}`,
-        actorType: 'SYSTEM',
-      })
+      liveRoute = 'escalamiento'
+      liveActivity.emit({ kind: 'routed', source: 'incoming', traceId, route: liveRoute })
+      liveActivity.emit({ kind: 'started', source: 'incoming', traceId, stage: 'Escalamiento' })
+      await tracedStep('Escalar a humano', () =>
+        transitionSequence(sequence.id, 'ESCALATED_TO_HUMAN', {
+          escalationReason: `Disputa detectada: ${params.text.slice(0, 200)}`,
+          actorType: 'SYSTEM',
+        })
+      )
       break
     }
 
     case 'AUTO_REPLY': {
       // Ignore auto-replies, no state transition
+      liveRoute = 'auto_reply'
+      liveActivity.emit({ kind: 'routed', source: 'incoming', traceId, route: liveRoute })
       break
     }
 
@@ -161,6 +245,14 @@ export async function processIncomingMessage(
     case 'NEGOCIANDO':
     case 'OTRO':
     default: {
+      liveRoute = 'conversacional'
+      liveActivity.emit({ kind: 'routed', source: 'incoming', traceId, route: liveRoute })
+      liveActivity.emit({
+        kind: 'started',
+        source: 'incoming',
+        traceId,
+        stage: 'Conversacional (Agent E)',
+      })
       // Arm the IN_CONVERSATION timeout: the runner will escalate if no further
       // incoming messages arrive before this deadline.
       const [timeouts, fastMode] = await Promise.all([
@@ -215,24 +307,31 @@ export async function processIncomingMessage(
         })),
       ].slice(-6)
 
-      const reply = await generateConversationalReply({
-        debtorName: sequence.client.razonSocial,
-        montoAdeudado,
-        diasVencido,
-        incomingCategory: classification.categoria,
-        incomingMessage: params.text,
-        conversationHistory: history,
-      })
+      const reply = await tracedStep('Generar respuesta (Agent E)', () =>
+        generateConversationalReply({
+          debtorName: sequence.client.razonSocial,
+          montoAdeudado,
+          diasVencido,
+          incomingCategory: classification.categoria,
+          incomingMessage: params.text,
+          conversationHistory: history,
+        })
+      )
+      livePreview = reply
 
       // Send reply via channel
       const channelInstance = getChannelInstance(params.channel)
-      const { externalMessageId, sentAt } = await channelInstance.send({
-        client: sequence.client,
-        templateCode: 'conversational_reply',
-        templateVars: {},
-        sequenceId: sequence.id,
-        renderedMessage: reply,
-      })
+      const { externalMessageId, sentAt } = await tracedStep(
+        'Enviar respuesta',
+        () =>
+          channelInstance.send({
+            client: sequence.client,
+            templateCode: 'conversational_reply',
+            templateVars: {},
+            sequenceId: sequence.id,
+            renderedMessage: reply,
+          })
+      )
 
       // Create OutreachAttempt for the reply
       await prisma.outreachAttempt.create({
@@ -268,5 +367,15 @@ export async function processIncomingMessage(
       category: classification.categoria,
       confianza: classification.confianza,
     },
+  })
+
+  liveActivity.emit({
+    kind: 'finished',
+    source: 'incoming',
+    traceId,
+    route: liveRoute,
+    latencyMs: Date.now() - startedAt,
+    steps: stepCount,
+    preview: livePreview,
   })
 }

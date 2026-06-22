@@ -10,6 +10,7 @@ import {
   BarChart3,
   Settings,
   LogOut,
+  Radio,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 
@@ -17,6 +18,7 @@ const navItems = [
   { href: "/cartera", label: "Cartera", icon: TableProperties },
   { href: "/clientes", label: "Clientes", icon: Users },
   { href: "/analisis-ia", label: "Analisis IA", icon: Bot },
+  { href: "/en-vivo", label: "En Vivo", icon: Radio },
   { href: "/historico", label: "Historico", icon: BarChart3 },
   { href: "/settings", label: "Settings", icon: Settings },
 ]
