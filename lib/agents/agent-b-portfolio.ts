@@ -78,8 +78,8 @@ Sé específico con montos y porcentajes. Contexto: Argentina, inflación y difi
 RESUMEN GENERAL:
 - Total deudores: ${summary.totalDebtors}
 - Monto total adeudado: $${summary.totalAmount.toLocaleString('es-AR')}
-- Distribución por bucket: ${JSON.stringify(summary.bucketCounts)}
-- Montos por bucket: ${JSON.stringify(summary.bucketAmounts)}
+- Deudores por bucket (cada deudor según su factura MÁS atrasada): ${JSON.stringify(summary.bucketCounts)}
+- Montos por bucket (aging por factura: cada factura en su propio tramo de atraso, el saldo no vencido va a SIN_VENCER): ${JSON.stringify(summary.bucketAmounts)}
 
 MUESTRA DE DEUDORES (top ${summary.sampleDebtors.length}):
 ${summary.sampleDebtors

@@ -119,8 +119,22 @@ export async function runTriage(
     const score = calculateScore({ diasVencidoMax, montoTotal, invoiceCount })
 
     bucketCounts[bucket] = (bucketCounts[bucket] ?? 0) + 1
-    bucketAmounts[bucket] = (bucketAmounts[bucket] ?? 0) + montoTotal
     totalAmount += montoTotal
+
+    // Aging de montos POR FACTURA: cada factura suma su monto al bucket de SUS
+    // propios días de atraso, no al bucket del deudor (que se define por su
+    // factura más atrasada). Así el saldo no vencido se reporta como SIN_VENCER
+    // en vez de inflar el bucket más severo del deudor. El conteo de deudores
+    // (bucketCounts) sí queda por deudor; los montos reflejan el aging real.
+    for (const inv of pendingInvoices) {
+      const invDias = Math.floor(
+        (now.getTime() - new Date(inv.fechaVencimiento).getTime()) /
+          (1000 * 60 * 60 * 24)
+      )
+      const invBucket = assignBucket(invDias, thresholds)
+      bucketAmounts[invBucket] =
+        (bucketAmounts[invBucket] ?? 0) + Number(inv.monto)
+    }
 
     snapshots.push({
       clientId: client.id,
