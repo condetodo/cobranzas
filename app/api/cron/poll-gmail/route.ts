@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { google } from 'googleapis'
+import { google, gmail_v1 } from 'googleapis'
 import { prisma } from '@/lib/db'
 import { getConfig, setConfig } from '@/lib/config'
 import { processIncomingMessage } from '@/lib/incoming/process-message'
@@ -42,6 +42,188 @@ function parseFromEmail(from: string): string | null {
   return bare?.[0]?.toLowerCase() ?? null
 }
 
+type MatchOutcome = { matched: true; strategy: string } | { matched: false }
+
+/**
+ * Fetches a single Gmail message, matches it to an OutreachSequence and either
+ * routes it through processIncomingMessage or records it as unmatched.
+ *
+ * Shared by the normal history-based path and the 404 recovery scan so both
+ * behave identically.
+ */
+async function processGmailMessage(
+  gmail: gmail_v1.Gmail,
+  msgId: string
+): Promise<MatchOutcome> {
+  const msg = await gmail.users.messages.get({
+    userId: 'me',
+    id: msgId,
+    format: 'full',
+  })
+
+  const headers = msg.data.payload?.headers
+  const from = extractHeader(headers, 'From') ?? ''
+  const inReplyTo = extractHeader(headers, 'In-Reply-To')
+  const subject = extractHeader(headers, 'Subject') ?? ''
+  const sequenceHeader = extractHeader(headers, 'X-CobranzasAI-Sequence-Id')
+
+  // Extract body text
+  let bodyText = ''
+  const payload = msg.data.payload
+  if (payload?.body?.data) {
+    bodyText = Buffer.from(payload.body.data, 'base64').toString('utf-8')
+  } else if (payload?.parts) {
+    const textPart = payload.parts.find((p) => p.mimeType === 'text/plain')
+    if (textPart?.body?.data) {
+      bodyText = Buffer.from(textPart.body.data, 'base64').toString('utf-8')
+    }
+  }
+
+  // Try to match with an OutreachAttempt
+  let matchedSequenceId: string | null = null
+  let strategy: string | undefined
+
+  if (sequenceHeader) {
+    const seq = await prisma.outreachSequence.findUnique({
+      where: { id: sequenceHeader },
+    })
+    if (seq) {
+      matchedSequenceId = seq.id
+      strategy = 'X-CobranzasAI-Sequence-Id'
+    }
+  }
+
+  if (!matchedSequenceId && inReplyTo) {
+    const attempt = await prisma.outreachAttempt.findFirst({
+      where: { externalMessageId: inReplyTo },
+    })
+    if (attempt) {
+      matchedSequenceId = attempt.sequenceId
+      strategy = 'In-Reply-To'
+    }
+  }
+
+  if (!matchedSequenceId) {
+    const attempt = await prisma.outreachAttempt.findFirst({
+      where: { externalMessageId: msgId },
+    })
+    if (attempt) {
+      matchedSequenceId = attempt.sequenceId
+      strategy = 'gmailMsgId'
+    }
+  }
+
+  // Fallback: match by sender email against any active sequence's client
+  if (!matchedSequenceId) {
+    const fromEmail = parseFromEmail(from)
+    if (fromEmail) {
+      const client = await prisma.client.findFirst({
+        where: { email: { equals: fromEmail, mode: 'insensitive' } },
+        include: {
+          outreachSequences: {
+            where: { state: { notIn: ['CLOSED', 'PAID'] } },
+            orderBy: { startedAt: 'desc' },
+            take: 1,
+          },
+        },
+      })
+      const seq = client?.outreachSequences[0]
+      if (seq) {
+        matchedSequenceId = seq.id
+        strategy = 'fromAddress'
+      }
+    }
+  }
+
+  console.log(
+    `[poll-gmail] msgId=${msgId} from="${from.slice(0, 60)}" subject="${subject.slice(0, 60)}" inReplyTo=${inReplyTo ? 'yes' : 'no'} seqHeader=${sequenceHeader ? 'yes' : 'no'} matched=${matchedSequenceId ? `via ${strategy}` : 'NO'}`
+  )
+
+  if (matchedSequenceId) {
+    await processIncomingMessage({
+      sequenceId: matchedSequenceId,
+      channel: 'EMAIL',
+      fromAddress: from,
+      text: bodyText,
+    })
+    return { matched: true, strategy: strategy! }
+  }
+
+  await prisma.incomingMessage.create({
+    data: {
+      channel: 'EMAIL',
+      fromAddress: from,
+      text: bodyText || `[Subject: ${subject}]`,
+    },
+  })
+  return { matched: false }
+}
+
+function errorStatus(err: unknown): number | undefined {
+  return (
+    (err as { code?: number })?.code ??
+    (err as { response?: { status?: number } })?.response?.status
+  )
+}
+
+/**
+ * Recovery path for when the stored historyId has expired (Gmail returns 404
+ * from history.list — history IDs are only retained for a limited window).
+ *
+ * Without this, history.list throws, the whole tick 500s, the cursor never
+ * advances, and EVERY subsequent tick fails the same way — silently dropping
+ * all incoming replies until someone manually resets the cursor.
+ *
+ * Instead we scan recent INBOX messages directly so in-flight replies aren't
+ * lost, then re-anchor lastHistoryId to the current profile so the cheap
+ * history-diff path resumes next tick.
+ */
+async function recoverFromExpiredHistory(gmail: gmail_v1.Gmail) {
+  const listed = await gmail.users.messages.list({
+    userId: 'me',
+    labelIds: ['INBOX'],
+    q: 'newer_than:2d',
+    maxResults: 50,
+  })
+  const ids = (listed.data.messages ?? [])
+    .map((m) => m.id)
+    .filter((id): id is string => !!id)
+
+  let processed = 0
+  let unmatched = 0
+  let errors = 0
+  for (const id of ids) {
+    try {
+      const outcome = await processGmailMessage(gmail, id)
+      if (outcome.matched) processed++
+      else unmatched++
+    } catch (err) {
+      // 404 here = message expunged between list and get; safe to skip.
+      if (errorStatus(err) === 404) continue
+      console.error(`[poll-gmail] recovery error on msgId=${id}:`, err)
+      errors++
+    }
+  }
+
+  // Re-anchor the cursor to "now" so the next tick uses the cheap history diff.
+  const profile = await gmail.users.getProfile({ userId: 'me' })
+  const historyId = profile.data.historyId ?? null
+  if (historyId) await setConfig('gmail.lastHistoryId', historyId)
+
+  console.log(
+    `[poll-gmail] recovered from expired historyId. scanned=${ids.length} processed=${processed} unmatched=${unmatched} errors=${errors} newHistoryId=${historyId}`
+  )
+
+  return NextResponse.json({
+    status: 'recovered',
+    scanned: ids.length,
+    processed,
+    unmatched,
+    errors,
+    newHistoryId: historyId,
+  })
+}
+
 export async function GET() {
   const gmail = getGmailClient()
 
@@ -60,12 +242,26 @@ export async function GET() {
   }
 
   // Fetch history since last known ID
-  const historyResponse = await gmail.users.history.list({
-    userId: 'me',
-    startHistoryId: lastHistoryId,
-    historyTypes: ['messageAdded'],
-    labelId: 'INBOX',
-  })
+  let historyResponse
+  try {
+    historyResponse = await gmail.users.history.list({
+      userId: 'me',
+      startHistoryId: lastHistoryId,
+      historyTypes: ['messageAdded'],
+      labelId: 'INBOX',
+    })
+  } catch (err) {
+    // An expired/invalid startHistoryId returns 404 ("Requested entity was not
+    // found"). Recover by scanning recent messages instead of crashing the
+    // whole tick forever.
+    if (errorStatus(err) === 404) {
+      console.warn(
+        `[poll-gmail] historyId ${lastHistoryId} expired (404). Recovering via message scan.`
+      )
+      return await recoverFromExpiredHistory(gmail)
+    }
+    throw err
+  }
 
   const history = historyResponse.data.history ?? []
   let processed = 0
@@ -86,115 +282,11 @@ export async function GET() {
       if (!msgId) continue
 
       try {
-        // Fetch full message
-        const msg = await gmail.users.messages.get({
-          userId: 'me',
-          id: msgId,
-          format: 'full',
-        })
-
-        const headers = msg.data.payload?.headers
-        const from = extractHeader(headers, 'From') ?? ''
-        const inReplyTo = extractHeader(headers, 'In-Reply-To')
-        const subject = extractHeader(headers, 'Subject') ?? ''
-        const sequenceHeader = extractHeader(
-          headers,
-          'X-CobranzasAI-Sequence-Id'
-        )
-
-        // Extract body text
-        let bodyText = ''
-        const payload = msg.data.payload
-        if (payload?.body?.data) {
-          bodyText = Buffer.from(payload.body.data, 'base64').toString('utf-8')
-        } else if (payload?.parts) {
-          const textPart = payload.parts.find(
-            (p) => p.mimeType === 'text/plain'
-          )
-          if (textPart?.body?.data) {
-            bodyText = Buffer.from(textPart.body.data, 'base64').toString(
-              'utf-8'
-            )
-          }
-        }
-
-        // Try to match with an OutreachAttempt
-        let matchedSequenceId: string | null = null
-        let strategy: string | undefined
-
-        if (sequenceHeader) {
-          const seq = await prisma.outreachSequence.findUnique({
-            where: { id: sequenceHeader },
-          })
-          if (seq) {
-            matchedSequenceId = seq.id
-            strategy = 'X-CobranzasAI-Sequence-Id'
-          }
-        }
-
-        if (!matchedSequenceId && inReplyTo) {
-          const attempt = await prisma.outreachAttempt.findFirst({
-            where: { externalMessageId: inReplyTo },
-          })
-          if (attempt) {
-            matchedSequenceId = attempt.sequenceId
-            strategy = 'In-Reply-To'
-          }
-        }
-
-        if (!matchedSequenceId) {
-          const attempt = await prisma.outreachAttempt.findFirst({
-            where: { externalMessageId: msgId },
-          })
-          if (attempt) {
-            matchedSequenceId = attempt.sequenceId
-            strategy = 'gmailMsgId'
-          }
-        }
-
-        // Fallback: match by sender email against any active sequence's client
-        if (!matchedSequenceId) {
-          const fromEmail = parseFromEmail(from)
-          if (fromEmail) {
-            const client = await prisma.client.findFirst({
-              where: { email: { equals: fromEmail, mode: 'insensitive' } },
-              include: {
-                outreachSequences: {
-                  where: { state: { notIn: ['CLOSED', 'PAID'] } },
-                  orderBy: { startedAt: 'desc' },
-                  take: 1,
-                },
-              },
-            })
-            const seq = client?.outreachSequences[0]
-            if (seq) {
-              matchedSequenceId = seq.id
-              strategy = 'fromAddress'
-            }
-          }
-        }
-
-        console.log(
-          `[poll-gmail] msgId=${msgId} from="${from.slice(0, 60)}" subject="${subject.slice(0, 60)}" inReplyTo=${inReplyTo ? 'yes' : 'no'} seqHeader=${sequenceHeader ? 'yes' : 'no'} matched=${matchedSequenceId ? `via ${strategy}` : 'NO'}`
-        )
-
-        if (matchedSequenceId) {
-          await processIncomingMessage({
-            sequenceId: matchedSequenceId,
-            channel: 'EMAIL',
-            fromAddress: from,
-            text: bodyText,
-          })
+        const outcome = await processGmailMessage(gmail, msgId)
+        if (outcome.matched) {
           processed++
-          matchingDetails.push({ msgId, matched: true, strategy })
+          matchingDetails.push({ msgId, matched: true, strategy: outcome.strategy })
         } else {
-          await prisma.incomingMessage.create({
-            data: {
-              channel: 'EMAIL',
-              fromAddress: from,
-              text: bodyText || `[Subject: ${subject}]`,
-            },
-          })
           unmatched++
           matchingDetails.push({ msgId, matched: false })
         }
@@ -204,8 +296,7 @@ export async function GET() {
         // process-message now short-circuits terminal states) shouldn't block
         // historyId advance. Transient errors (Anthropic timeout, DB blip)
         // do, so the failed message is retried on the next tick.
-        const status = (err as { code?: number; response?: { status?: number } })?.code
-          ?? (err as { response?: { status?: number } })?.response?.status
+        const status = errorStatus(err)
         const message = (err as Error)?.message ?? ''
         const isPermanent = status === 404 || message.startsWith('Invalid transition:')
         if (isPermanent) {
