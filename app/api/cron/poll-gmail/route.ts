@@ -42,7 +42,54 @@ function parseFromEmail(from: string): string | null {
   return bare?.[0]?.toLowerCase() ?? null
 }
 
-type MatchOutcome = { matched: true; strategy: string } | { matched: false }
+type MatchOutcome =
+  | { matched: true; strategy: string }
+  | { matched: false }
+  | { auto: true }
+
+/**
+ * Detects bounces (delivery-status notifications) and auto-replies (out-of-office,
+ * vacation responders) deterministically from headers — BEFORE any matching or
+ * agent classification.
+ *
+ * Critical: a Gmail DSN bounce echoes the failed message's Message-ID in its
+ * In-Reply-To, so it matches the originating sequence via In-Reply-To and gets
+ * treated as a debtor reply. That runs Agent C on every bounce (cost) and, if
+ * misclassified as a real reply, makes Agent E "answer" the mailer-daemon — which
+ * is sent to the same dead mailbox, bounces again, and loops. We never want the
+ * agent pipeline to see these, so we short-circuit here.
+ */
+function isAutoOrBounce(
+  headers: Array<{ name?: string | null; value?: string | null }> | undefined,
+  from: string
+): boolean {
+  const fromLower = from.toLowerCase()
+  if (
+    fromLower.includes('mailer-daemon@') ||
+    fromLower.includes('postmaster@')
+  ) {
+    return true
+  }
+  // RFC 3834: any value other than "no" marks an automatically generated message
+  // (covers DSNs, vacation responders, and most auto-replies).
+  const autoSubmitted = extractHeader(headers, 'Auto-Submitted')
+  if (autoSubmitted && autoSubmitted.trim().toLowerCase() !== 'no') {
+    return true
+  }
+  // Gmail/most MTAs stamp bounces with this header listing the failed address.
+  if (extractHeader(headers, 'X-Failed-Recipients')) {
+    return true
+  }
+  // Delivery-status reports use a multipart/report content type.
+  const contentType = extractHeader(headers, 'Content-Type')?.toLowerCase() ?? ''
+  if (
+    contentType.includes('multipart/report') &&
+    contentType.includes('delivery-status')
+  ) {
+    return true
+  }
+  return false
+}
 
 /**
  * Fetches a single Gmail message, matches it to an OutreachSequence and either
@@ -66,6 +113,16 @@ async function processGmailMessage(
   const inReplyTo = extractHeader(headers, 'In-Reply-To')
   const subject = extractHeader(headers, 'Subject') ?? ''
   const sequenceHeader = extractHeader(headers, 'X-CobranzasAI-Sequence-Id')
+
+  // Short-circuit bounces / auto-replies before matching or classifying. A DSN
+  // bounce matches its origin sequence via In-Reply-To and would otherwise be
+  // processed as a debtor reply (Agent C cost + potential reply-to-deadbox loop).
+  if (isAutoOrBounce(headers, from)) {
+    console.log(
+      `[poll-gmail] msgId=${msgId} from="${from.slice(0, 60)}" subject="${subject.slice(0, 60)}" -> AUTO/BOUNCE, skipped (no matching, no agent)`
+    )
+    return { auto: true }
+  }
 
   // Extract body text
   let bodyText = ''
@@ -191,11 +248,13 @@ async function recoverFromExpiredHistory(gmail: gmail_v1.Gmail) {
 
   let processed = 0
   let unmatched = 0
+  let autoSkipped = 0
   let errors = 0
   for (const id of ids) {
     try {
       const outcome = await processGmailMessage(gmail, id)
-      if (outcome.matched) processed++
+      if ('auto' in outcome) autoSkipped++
+      else if (outcome.matched) processed++
       else unmatched++
     } catch (err) {
       // 404 here = message expunged between list and get; safe to skip.
@@ -211,7 +270,7 @@ async function recoverFromExpiredHistory(gmail: gmail_v1.Gmail) {
   if (historyId) await setConfig('gmail.lastHistoryId', historyId)
 
   console.log(
-    `[poll-gmail] recovered from expired historyId. scanned=${ids.length} processed=${processed} unmatched=${unmatched} errors=${errors} newHistoryId=${historyId}`
+    `[poll-gmail] recovered from expired historyId. scanned=${ids.length} processed=${processed} unmatched=${unmatched} autoSkipped=${autoSkipped} errors=${errors} newHistoryId=${historyId}`
   )
 
   return NextResponse.json({
@@ -219,6 +278,7 @@ async function recoverFromExpiredHistory(gmail: gmail_v1.Gmail) {
     scanned: ids.length,
     processed,
     unmatched,
+    autoSkipped,
     errors,
     newHistoryId: historyId,
   })
@@ -266,9 +326,10 @@ export async function GET() {
   const history = historyResponse.data.history ?? []
   let processed = 0
   let unmatched = 0
+  let autoSkipped = 0
   let errors = 0
   let skipped = 0
-  const matchingDetails: Array<{ msgId: string; matched: boolean; strategy?: string; category?: string }> = []
+  const matchingDetails: Array<{ msgId: string; matched: boolean; auto?: boolean; strategy?: string; category?: string }> = []
   let newHistoryId = historyResponse.data.historyId ?? lastHistoryId
 
   console.log(
@@ -283,7 +344,10 @@ export async function GET() {
 
       try {
         const outcome = await processGmailMessage(gmail, msgId)
-        if (outcome.matched) {
+        if ('auto' in outcome) {
+          autoSkipped++
+          matchingDetails.push({ msgId, matched: false, auto: true })
+        } else if (outcome.matched) {
           processed++
           matchingDetails.push({ msgId, matched: true, strategy: outcome.strategy })
         } else {
@@ -324,13 +388,14 @@ export async function GET() {
   }
 
   console.log(
-    `[poll-gmail] done. processed=${processed} unmatched=${unmatched} skipped=${skipped} errors=${errors} historyAdvanced=${errors === 0}`
+    `[poll-gmail] done. processed=${processed} unmatched=${unmatched} autoSkipped=${autoSkipped} skipped=${skipped} errors=${errors} historyAdvanced=${errors === 0}`
   )
 
   return NextResponse.json({
     status: 'ok',
     processed,
     unmatched,
+    autoSkipped,
     skipped,
     errors,
     newHistoryId: errors === 0 ? newHistoryId : lastHistoryId,
